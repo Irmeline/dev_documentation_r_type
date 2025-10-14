@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>R-TYPE Developer Documentation &#8212; R-TYPE 0.1 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=2709fde1"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="r-type-developer-documentation">
+<h1>R-TYPE Developer Documentation<a class="headerlink" href="#r-type-developer-documentation" title="Link to this heading">¶</a></h1>
+<p><strong>R-TYPE</strong> is a multiplayer shoot’em up video game developed in <strong>C++20</strong>, inspired by the classic arcade game <em>R-Type</em>.
+The player controls a spaceship that must defeat waves of enemies and dodge incoming projectiles.</p>
+<p>The main goal of this project is to design a <strong>modular, reusable, and networked game engine</strong> using an <strong>ECS (Entity Component System)</strong> architecture.
+The <strong>client</strong> manages graphics and inputs (via <strong>SFML</strong>), while the <strong>server</strong> handles logic, synchronization, and communication (via <strong>ASIO</strong>).</p>
+<p>This documentation is intended for developers joining the project.
+It focuses on:
+- Understanding the <strong>architecture</strong> (ECS, systems, networking),
+- Knowing how to <strong>build and run</strong> the project,
+- Following <strong>team conventions</strong> and <strong>code contribution rules</strong>.</p>
+<p>—</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
+<p>R-Type is divided into <strong>three core modules</strong>:</p>
+<ol class="arabic simple">
+<li><p><strong>Engine (ECS Core Library)</strong>
+- Implements the Entity Component System architecture.
+- Manages entities, components, and systems.
+- Shared between client and server.</p></li>
+<li><p><strong>Client (Front-end Application)</strong>
+- Uses <strong>SFML</strong> for rendering, audio, and input.
+- Communicates with the server to display synchronized game states.</p></li>
+<li><p><strong>Server (Game Logic and Networking)</strong>
+- Manages all connected clients, runs the simulation, and ensures consistency using <strong>ASIO (UDP)</strong>.</p></li>
+</ol>
+<p>—</p>
+</section>
+<section id="architecture">
+<h2>Architecture<a class="headerlink" href="#architecture" title="Link to this heading">¶</a></h2>
+<a class="reference internal image-reference" href="_static/architecture_diagram.png"><img alt="R-Type Architecture Diagram" class="align-center" src="_static/architecture_diagram.png" style="width: 80%;" />
+</a>
+<p><strong>High-level architecture:</strong></p>
+<ul class="simple">
+<li><p>The <strong>Server</strong> maintains the authoritative world state.</p></li>
+<li><p>The <strong>Client</strong> sends inputs and renders visuals based on server updates.</p></li>
+<li><p>The <strong>Engine (ECS)</strong> handles all entity logic and is shared between both.</p></li>
+</ul>
+<p>Each entity in the game (e.g., Player, Enemy, Projectile) is represented by a <strong>set of components</strong> (data) processed by <strong>systems</strong> (logic).</p>
+<p>—</p>
+</section>
+<section id="ecs-core-engine">
+<h2>ECS Core Engine<a class="headerlink" href="#ecs-core-engine" title="Link to this heading">¶</a></h2>
+<p>The <strong>Entity Component System</strong> decouples data from logic, improving scalability and maintainability.</p>
+<p><strong>Core Components:</strong>
+- <code class="docutils literal notranslate"><span class="pre">Registry</span></code> — Stores and manages all entities and components.
+- <code class="docutils literal notranslate"><span class="pre">sparse_array</span></code> — Efficient storage for optional components.
+- <code class="docutils literal notranslate"><span class="pre">System</span></code> classes — Apply updates (movement, collisions, etc.) to relevant entities.</p>
+<p><strong>Example:</strong> Movement System</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="kt">void</span><span class="w"> </span><span class="nf">MovementSystem::update</span><span class="p">(</span><span class="n">Registry</span><span class="w"> </span><span class="o">&amp;</span><span class="n">reg</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">deltaTime</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">auto</span><span class="w"> </span><span class="o">&amp;</span><span class="n">positions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reg</span><span class="p">.</span><span class="n">get_components</span><span class="o">&lt;</span><span class="n">Position</span><span class="o">&gt;</span><span class="p">();</span>
+<span class="w">    </span><span class="k">auto</span><span class="w"> </span><span class="o">&amp;</span><span class="n">velocities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reg</span><span class="p">.</span><span class="n">get_components</span><span class="o">&lt;</span><span class="n">Velocity</span><span class="o">&gt;</span><span class="p">();</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">positions</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w"> </span><span class="o">++</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">positions</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">velocities</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">positions</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">x</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">velocities</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">dx</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">deltaTime</span><span class="p">;</span>
+<span class="w">            </span><span class="n">positions</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">y</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">velocities</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">dy</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">deltaTime</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>This ensures <strong>each component has a single responsibility</strong>, making the engine easily extensible.</p>
+<p>—</p>
+</section>
+<section id="components">
+<h2>Components<a class="headerlink" href="#components" title="Link to this heading">¶</a></h2>
+<p>Each component represents <strong>a specific property</strong> of an entity.</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="k">struct</span><span class="w"> </span><span class="nc">Position</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">y</span><span class="p">;</span><span class="w"> </span><span class="p">};</span>
+<span class="k">struct</span><span class="w"> </span><span class="nc">Velocity</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">dx</span><span class="p">,</span><span class="w"> </span><span class="n">dy</span><span class="p">;</span><span class="w"> </span><span class="p">};</span>
+<span class="k">struct</span><span class="w"> </span><span class="nc">Health</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">hp</span><span class="p">;</span><span class="w"> </span><span class="p">};</span>
+<span class="k">struct</span><span class="w"> </span><span class="nc">Damage</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">value</span><span class="p">;</span><span class="w"> </span><span class="p">};</span>
+<span class="k">struct</span><span class="w"> </span><span class="nc">Hitbox</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">width</span><span class="p">,</span><span class="w"> </span><span class="n">height</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">y</span><span class="p">;</span><span class="w"> </span><span class="p">};</span>
+</pre></div>
+</div>
+<p>The <strong>Registry</strong> manages component creation and deletion dynamically, allowing flexible entity composition.</p>
+<p>—</p>
+</section>
+<section id="systems">
+<h2>Systems<a class="headerlink" href="#systems" title="Link to this heading">¶</a></h2>
+<p>Systems represent the <strong>logic layer</strong> of the ECS (Entity Component System).
+Each system iterates through entities that have certain components and applies transformations, physics, rendering, or networking.</p>
+<p>They form the core of how the R-Type game behaves — from movement and collisions to rendering and networking.</p>
+<div class="line-block">
+<div class="line"><strong>MovementSystem</strong>  : Updates entity positions based on their velocity (run on the  Server &amp; Client)</div>
+<div class="line"><strong>CollisionSystem</strong> : Detects and handles collisions between entities  (run on the Server)</div>
+<div class="line"><strong>RenderSystem</strong>    : Draws sprites, backgrounds, and UI (run on the Client)</div>
+<div class="line"><strong>AudioSystem</strong>     : Plays sound effects and music  (run on the Client)</div>
+<div class="line"><strong>UdpModule</strong>       : Manages network packets asynchronously (run on the Server)</div>
+</div>
+<p>—</p>
+</section>
+<section id="movement-system">
+<h2>Movement System<a class="headerlink" href="#movement-system" title="Link to this heading">¶</a></h2>
+<p>The <strong>MovementSystem</strong> is responsible for moving entities by updating their positions according to their velocity.</p>
+<p>It works by iterating through all entities that contain both a <cite>Position</cite> and a <cite>Velocity</cite> component.</p>
+<p><strong>Responsibilities:</strong>
+- Apply movement each frame based on delta time.
+- Keep entity positions consistent across server and client.
+- Prepare synchronization updates for the network system.</p>
+<p><strong>Example Implementation:</strong></p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="kt">void</span><span class="w"> </span><span class="nf">MovementSystem::update</span><span class="p">(</span><span class="n">Registry</span><span class="w"> </span><span class="o">&amp;</span><span class="n">reg</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">deltaTime</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">auto</span><span class="w"> </span><span class="o">&amp;</span><span class="n">positions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reg</span><span class="p">.</span><span class="n">get_components</span><span class="o">&lt;</span><span class="n">Position</span><span class="o">&gt;</span><span class="p">();</span>
+<span class="w">    </span><span class="k">auto</span><span class="w"> </span><span class="o">&amp;</span><span class="n">velocities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reg</span><span class="p">.</span><span class="n">get_components</span><span class="o">&lt;</span><span class="n">Velocity</span><span class="o">&gt;</span><span class="p">();</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">positions</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w"> </span><span class="o">++</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">positions</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">velocities</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">positions</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">x</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">velocities</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">dx</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">deltaTime</span><span class="p">;</span>
+<span class="w">            </span><span class="n">positions</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">y</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">velocities</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">dy</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">deltaTime</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Example Components:</strong></p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="k">struct</span><span class="w"> </span><span class="nc">Position</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">y</span><span class="p">;</span>
+<span class="w">    </span><span class="n">Position</span><span class="p">(</span><span class="kt">double</span><span class="w"> </span><span class="n">x_</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">y_</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">x</span><span class="p">(</span><span class="n">x_</span><span class="p">),</span><span class="w"> </span><span class="n">y</span><span class="p">(</span><span class="n">y_</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span>
+<span class="p">};</span>
+
+<span class="k">struct</span><span class="w"> </span><span class="nc">Velocity</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">dx</span><span class="p">,</span><span class="w"> </span><span class="n">dy</span><span class="p">;</span>
+<span class="w">    </span><span class="n">Velocity</span><span class="p">(</span><span class="kt">double</span><span class="w"> </span><span class="n">dx_</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">dy_</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">dx</span><span class="p">(</span><span class="n">dx_</span><span class="p">),</span><span class="w"> </span><span class="n">dy</span><span class="p">(</span><span class="n">dy_</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span>
+<span class="p">};</span>
+</pre></div>
+</div>
+<p><strong>Usage:</strong>
+The <cite>MovementSystem</cite> is executed every frame during the update loop on both the server (for physics) and client (for local interpolation).</p>
+<p>—</p>
+</section>
+<section id="collision-system">
+<h2>Collision System<a class="headerlink" href="#collision-system" title="Link to this heading">¶</a></h2>
+<p>The <strong>CollisionSystem</strong> detects when two entities overlap (collide) using their <cite>Hit_box</cite> components.
+This system primarily runs on the <strong>server</strong>, as it determines gameplay events like hits, damage, or projectile impacts.</p>
+<p><strong>Responsibilities:</strong>
+- Detect collisions between entities.
+- Compute collision points.
+- Trigger appropriate responses (damage, destruction, etc.).
+- Log collision events for the network system to synchronize.</p>
+<p><strong>Example Implementation:</strong></p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="kt">bool</span><span class="w"> </span><span class="nf">checkCollision</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">Hit_box</span><span class="o">&amp;</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">Hit_box</span><span class="o">&amp;</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="p">.</span><span class="n">x</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">b</span><span class="p">.</span><span class="n">x</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">b</span><span class="p">.</span><span class="n">width</span><span class="w"> </span><span class="o">&amp;&amp;</span>
+<span class="w">            </span><span class="n">a</span><span class="p">.</span><span class="n">x</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">a</span><span class="p">.</span><span class="n">width</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">b</span><span class="p">.</span><span class="n">x</span><span class="w"> </span><span class="o">&amp;&amp;</span>
+<span class="w">            </span><span class="n">a</span><span class="p">.</span><span class="n">y</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">b</span><span class="p">.</span><span class="n">y</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">b</span><span class="p">.</span><span class="n">height</span><span class="w"> </span><span class="o">&amp;&amp;</span>
+<span class="w">            </span><span class="n">a</span><span class="p">.</span><span class="n">y</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">a</span><span class="p">.</span><span class="n">height</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">b</span><span class="p">.</span><span class="n">y</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="n">std</span><span class="o">::</span><span class="n">pair</span><span class="o">&lt;</span><span class="kt">double</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="o">&gt;</span><span class="w"> </span><span class="n">getCollisionPoint</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">Hit_box</span><span class="o">&amp;</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">Hit_box</span><span class="o">&amp;</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">collisionX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">max</span><span class="p">(</span><span class="n">a</span><span class="p">.</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="p">.</span><span class="n">x</span><span class="p">);</span>
+<span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">collisionY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">max</span><span class="p">(</span><span class="n">a</span><span class="p">.</span><span class="n">y</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="p">.</span><span class="n">y</span><span class="p">);</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="p">{</span><span class="n">collisionX</span><span class="p">,</span><span class="w"> </span><span class="n">collisionY</span><span class="p">};</span>
+<span class="p">}</span>
+
+<span class="kt">void</span><span class="w"> </span><span class="n">CollisionSystem</span><span class="o">::</span><span class="n">update</span><span class="p">(</span><span class="n">Registry</span><span class="w"> </span><span class="o">&amp;</span><span class="n">reg</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">auto</span><span class="w"> </span><span class="o">&amp;</span><span class="n">hitboxes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reg</span><span class="p">.</span><span class="n">get_components</span><span class="o">&lt;</span><span class="n">Hit_box</span><span class="o">&gt;</span><span class="p">();</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">hitboxes</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w"> </span><span class="o">++</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">hitboxes</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w"> </span><span class="o">++</span><span class="n">j</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hitboxes</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">hitboxes</span><span class="p">[</span><span class="n">j</span><span class="p">])</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">checkCollision</span><span class="p">(</span><span class="o">*</span><span class="n">hitboxes</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="o">*</span><span class="n">hitboxes</span><span class="p">[</span><span class="n">j</span><span class="p">]))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="k">auto</span><span class="w"> </span><span class="n">point</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getCollisionPoint</span><span class="p">(</span><span class="o">*</span><span class="n">hitboxes</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="o">*</span><span class="n">hitboxes</span><span class="p">[</span><span class="n">j</span><span class="p">]);</span>
+<span class="w">                    </span><span class="n">std</span><span class="o">::</span><span class="n">cout</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;Collision detected at (&quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">point</span><span class="p">.</span><span class="n">first</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;, &quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">point</span><span class="p">.</span><span class="n">second</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;)&quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+<span class="w">                </span><span class="p">}</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Example Component:</strong></p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="k">struct</span><span class="w"> </span><span class="nc">Hit_box</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">width</span><span class="p">,</span><span class="w"> </span><span class="n">height</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">y</span><span class="p">;</span>
+<span class="w">    </span><span class="n">Hit_box</span><span class="p">(</span><span class="kt">double</span><span class="w"> </span><span class="n">w</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">h</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">_x</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">_y</span><span class="p">)</span>
+<span class="w">        </span><span class="o">:</span><span class="w"> </span><span class="n">width</span><span class="p">(</span><span class="n">w</span><span class="p">),</span><span class="w"> </span><span class="n">height</span><span class="p">(</span><span class="n">h</span><span class="p">),</span><span class="w"> </span><span class="n">x</span><span class="p">(</span><span class="n">_x</span><span class="p">),</span><span class="w"> </span><span class="n">y</span><span class="p">(</span><span class="n">_y</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span>
+<span class="p">};</span>
+</pre></div>
+</div>
+<p><strong>Usage:</strong>
+- Used by the server to manage physical interactions.
+- Often triggers audio and visual feedback via <cite>AudioSystem</cite> and <cite>RenderSystem</cite>.</p>
+<p>—</p>
+</section>
+<section id="render-system">
+<h2>Render System<a class="headerlink" href="#render-system" title="Link to this heading">¶</a></h2>
+<p>The <strong>RenderSystem</strong> handles the graphical rendering of all entities on the screen using <strong>SFML</strong>.
+It draws backgrounds, entities, and UI text every frame.</p>
+<p><strong>Responsibilities:</strong>
+- Load and cache textures.
+- Display entities (<cite>Sprite</cite> components).
+- Manage background scrolling.
+- Render text for UI and HUD elements.</p>
+<p><strong>Example Implementation:</strong></p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="kt">void</span><span class="w"> </span><span class="nf">RenderSystem::update</span><span class="p">(</span><span class="n">Registry</span><span class="o">&amp;</span><span class="w"> </span><span class="n">registry</span><span class="p">,</span><span class="w"> </span><span class="n">sf</span><span class="o">::</span><span class="n">RenderWindow</span><span class="o">&amp;</span><span class="w"> </span><span class="n">window</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">window</span><span class="p">.</span><span class="n">clear</span><span class="p">();</span>
+<span class="w">    </span><span class="n">renderBackground</span><span class="p">(</span><span class="n">registry</span><span class="p">,</span><span class="w"> </span><span class="n">window</span><span class="p">);</span>
+<span class="w">    </span><span class="n">renderEntities</span><span class="p">(</span><span class="n">registry</span><span class="p">,</span><span class="w"> </span><span class="n">window</span><span class="p">);</span>
+<span class="w">    </span><span class="n">renderUI</span><span class="p">(</span><span class="n">registry</span><span class="p">,</span><span class="w"> </span><span class="n">window</span><span class="p">);</span>
+<span class="w">    </span><span class="n">window</span><span class="p">.</span><span class="n">display</span><span class="p">();</span>
+<span class="p">}</span>
+
+<span class="kt">void</span><span class="w"> </span><span class="nf">RenderSystem::renderEntities</span><span class="p">(</span><span class="n">Registry</span><span class="o">&amp;</span><span class="w"> </span><span class="n">registry</span><span class="p">,</span><span class="w"> </span><span class="n">sf</span><span class="o">::</span><span class="n">RenderWindow</span><span class="o">&amp;</span><span class="w"> </span><span class="n">window</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">auto</span><span class="o">&amp;</span><span class="w"> </span><span class="n">renderComponents</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">registry</span><span class="p">.</span><span class="n">get_components</span><span class="o">&lt;</span><span class="n">Sprite</span><span class="o">&gt;</span><span class="p">();</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">renderComponents</span><span class="p">.</span><span class="n">array_size</span><span class="p">();</span><span class="w"> </span><span class="o">++</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">auto</span><span class="o">&amp;</span><span class="w"> </span><span class="n">comp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">renderComponents</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">comp</span><span class="o">-&gt;</span><span class="n">visible</span><span class="p">)</span>
+<span class="w">                </span><span class="n">window</span><span class="p">.</span><span class="n">draw</span><span class="p">(</span><span class="n">comp</span><span class="o">-&gt;</span><span class="n">sprite</span><span class="p">);</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Example Components:</strong></p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="k">struct</span><span class="w"> </span><span class="nc">Sprite</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">sf</span><span class="o">::</span><span class="n">Sprite</span><span class="w"> </span><span class="n">sprite</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">visible</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span>
+<span class="p">};</span>
+
+<span class="k">struct</span><span class="w"> </span><span class="nc">Background</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">sf</span><span class="o">::</span><span class="n">Sprite</span><span class="w"> </span><span class="n">sprite</span><span class="p">;</span>
+<span class="p">};</span>
+</pre></div>
+</div>
+<p><strong>Summary:</strong>
+- Client-side only.
+- No logic, purely visual.
+- Works closely with the ECS registry.</p>
+<p>—</p>
+</section>
+<section id="audio-system">
+<h2>Audio System<a class="headerlink" href="#audio-system" title="Link to this heading">¶</a></h2>
+<p>The <strong>AudioSystem</strong> plays sounds and background music using <strong>SFML Audio</strong>.
+It interacts with entities containing the <cite>Audio</cite> component.</p>
+<p><strong>Responsibilities:</strong>
+- Manage sound buffers and playback.
+- Control music volume and looping.
+- React to events (e.g., explosions, collisions, etc.).</p>
+<p><strong>Example Implementation:</strong></p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="kt">void</span><span class="w"> </span><span class="nf">AudioSystem::playSound</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">volume</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">sounds</span><span class="p">.</span><span class="n">find</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">sounds</span><span class="p">.</span><span class="n">end</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">sounds</span><span class="p">[</span><span class="n">id</span><span class="p">].</span><span class="n">setVolume</span><span class="p">(</span><span class="n">volume</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="n">masterVolume</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">100.0f</span><span class="p">));</span>
+<span class="w">        </span><span class="n">sounds</span><span class="p">[</span><span class="n">id</span><span class="p">].</span><span class="n">play</span><span class="p">();</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="kt">void</span><span class="w"> </span><span class="nf">AudioSystem::update</span><span class="p">(</span><span class="n">Registry</span><span class="o">&amp;</span><span class="w"> </span><span class="n">registry</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">auto</span><span class="o">&amp;</span><span class="w"> </span><span class="n">audioComponents</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">registry</span><span class="p">.</span><span class="n">get_components</span><span class="o">&lt;</span><span class="n">Audio</span><span class="o">&gt;</span><span class="p">();</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">audioComponents</span><span class="p">.</span><span class="n">array_size</span><span class="p">();</span><span class="w"> </span><span class="o">++</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">auto</span><span class="o">&amp;</span><span class="w"> </span><span class="n">comp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">audioComponents</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">comp</span><span class="o">-&gt;</span><span class="n">shouldPlay</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="n">playSound</span><span class="p">(</span><span class="n">comp</span><span class="o">-&gt;</span><span class="n">soundId</span><span class="p">,</span><span class="w"> </span><span class="n">comp</span><span class="o">-&gt;</span><span class="n">volume</span><span class="p">);</span>
+<span class="w">                </span><span class="n">comp</span><span class="o">-&gt;</span><span class="n">shouldPlay</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Example Component:</strong></p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="k">struct</span><span class="w"> </span><span class="nc">Audio</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w"> </span><span class="n">soundId</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">float</span><span class="w"> </span><span class="n">volume</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">100.0f</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">shouldPlay</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span>
+<span class="p">};</span>
+</pre></div>
+</div>
+<p><strong>Usage:</strong>
+- Client-only.
+- Called every frame to check for new sounds to play.</p>
+<p>—</p>
+</section>
+<section id="udpmodule-server-networking">
+<h2>UdpModule (Server Networking)<a class="headerlink" href="#udpmodule-server-networking" title="Link to this heading">¶</a></h2>
+<p>The <strong>UdpModule</strong> is the networking backbone of the R-Type server.
+It manages client communication using <strong>ASIO</strong> with asynchronous UDP sockets.</p>
+<p><strong>Responsibilities:</strong>
+- Listen for client input packets.
+- Send updates to clients.
+- Operate asynchronously to maintain real-time performance.</p>
+<p><strong>Example Implementation:</strong></p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">UdpModule</span><span class="o">::</span><span class="n">UdpModule</span><span class="p">(</span><span class="n">asio</span><span class="o">::</span><span class="n">io_context</span><span class="w"> </span><span class="o">&amp;</span><span class="n">context</span><span class="p">,</span><span class="w"> </span><span class="kt">short</span><span class="w"> </span><span class="n">port</span><span class="p">)</span>
+<span class="o">:</span><span class="w"> </span><span class="n">_socket</span><span class="p">(</span><span class="n">context</span><span class="p">,</span><span class="w"> </span><span class="n">asio</span><span class="o">::</span><span class="n">ip</span><span class="o">::</span><span class="n">udp</span><span class="o">::</span><span class="n">endpoint</span><span class="p">(</span><span class="n">asio</span><span class="o">::</span><span class="n">ip</span><span class="o">::</span><span class="n">udp</span><span class="o">::</span><span class="n">v4</span><span class="p">(),</span><span class="w"> </span><span class="n">port</span><span class="p">))</span>
+<span class="p">{</span>
+<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">cout</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;[UDP] Listening on port &quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">port</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">void</span><span class="w"> </span><span class="n">UdpModule</span><span class="o">::</span><span class="n">listen</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">function</span><span class="o">&lt;</span><span class="kt">void</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">error_code</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="p">,</span><span class="w"> </span><span class="n">udp</span><span class="o">::</span><span class="n">endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">array</span><span class="o">&lt;</span><span class="kt">char</span><span class="p">,</span><span class="w"> </span><span class="mi">1024</span><span class="o">&gt;&amp;</span><span class="p">)</span><span class="o">&gt;</span><span class="w"> </span><span class="n">callback</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">buffer</span><span class="p">.</span><span class="n">fill</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+<span class="w">    </span><span class="n">_socket</span><span class="p">.</span><span class="n">async_receive_from</span><span class="p">(</span><span class="n">asio</span><span class="o">::</span><span class="n">buffer</span><span class="p">(</span><span class="n">buffer</span><span class="p">),</span><span class="w"> </span><span class="n">_endpoint</span><span class="p">,</span>
+<span class="w">        </span><span class="p">[</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">callback</span><span class="p">](</span><span class="n">std</span><span class="o">::</span><span class="n">error_code</span><span class="w"> </span><span class="n">ec</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="w"> </span><span class="n">len</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">callback</span><span class="p">(</span><span class="n">ec</span><span class="p">,</span><span class="w"> </span><span class="n">len</span><span class="p">,</span><span class="w"> </span><span class="n">_endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">buffer</span><span class="p">);</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">);</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">asio</span><span class="o">::</span><span class="n">io_context</span><span class="w"> </span><span class="n">context</span><span class="p">;</span>
+<span class="n">UdpModule</span><span class="w"> </span><span class="nf">udpServer</span><span class="p">(</span><span class="n">context</span><span class="p">,</span><span class="w"> </span><span class="mi">4242</span><span class="p">);</span>
+
+<span class="n">udpServer</span><span class="p">.</span><span class="n">listen</span><span class="p">([](</span><span class="n">std</span><span class="o">::</span><span class="n">error_code</span><span class="w"> </span><span class="n">ec</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="w"> </span><span class="n">len</span><span class="p">,</span><span class="w"> </span><span class="n">udp</span><span class="o">::</span><span class="n">endpoint</span><span class="w"> </span><span class="n">client</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">array</span><span class="o">&lt;</span><span class="kt">char</span><span class="p">,</span><span class="w"> </span><span class="mi">1024</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">data</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">ec</span><span class="p">)</span>
+<span class="w">        </span><span class="n">std</span><span class="o">::</span><span class="n">cout</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;Received from &quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">address</span><span class="p">()</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;: &quot;</span>
+<span class="w">                  </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="p">(</span><span class="n">data</span><span class="p">.</span><span class="n">data</span><span class="p">(),</span><span class="w"> </span><span class="n">len</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+<span class="p">});</span>
+
+<span class="n">context</span><span class="p">.</span><span class="n">run</span><span class="p">();</span>
+</pre></div>
+</div>
+<p><strong>Summary:</strong>
+- Server-only system.
+- Non-blocking, efficient, scalable.
+- Communicates via packets defined in the <cite>Protocol.hpp</cite>.</p>
+<p>—</p>
+</section>
+<section id="summary">
+<h2>Summary<a class="headerlink" href="#summary" title="Link to this heading">¶</a></h2>
+<div class="line-block">
+<div class="line"><strong>MovementSystem</strong> : (type)Logic  (Moves entities based on velocity)</div>
+<div class="line"><strong>CollisionSystem</strong> : (type)Physics (Detects and resolves collisions)</div>
+<div class="line"><strong>RenderSystem</strong> : (type)Graphics (Draws all entities and UI)</div>
+<div class="line"><strong>AudioSystem</strong> : (type)Sound (Plays sound effects and music)</div>
+<div class="line"><strong>UdpModule</strong> :(type)Networking (Handles server-client communication)</div>
+</div>
+<p>Together, these systems form the <strong>core logic loop</strong> of the R-Type engine:
+1. The <strong>server</strong> updates positions and handles collisions.
+2. The <strong>client</strong> renders visuals and plays sounds.
+3. Both communicate through <strong>UDP</strong> to stay synchronized in real time.</p>
+<p>—</p>
+</section>
+<section id="networking">
+<h2>Networking<a class="headerlink" href="#networking" title="Link to this heading">¶</a></h2>
+<p>R-Type uses <strong>ASIO (UDP)</strong> for high-performance real-time networking.</p>
+<p><strong>Server:</strong>
+- Receives client input packets (e.g., movement, shooting).
+- Updates the ECS world state.
+- Sends back synchronized updates (entity positions, events).</p>
+<p><strong>Client:</strong>
+- Sends player actions to the server.
+- Receives updated world state packets.
+- Updates its local ECS registry for rendering.</p>
+<a class="reference internal image-reference" href="_static/network_diagram.png"><img alt="Networking Data Flow" class="align-center" src="_static/network_diagram.png" style="width: 75%;" />
+</a>
+<p>—</p>
+</section>
+<section id="comparative-technical-study">
+<h2>Comparative &amp; Technical Study<a class="headerlink" href="#comparative-technical-study" title="Link to this heading">¶</a></h2>
+<p><strong>Languages:</strong>
+- Chosen: <strong>C++20</strong></p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Enables templates, type-safety, and high-performance ECS patterns.</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>Alternatives: <strong>Rust</strong>, <strong>C# (Unity ECS)</strong>
+- Rust ensures memory safety but has a smaller ecosystem.
+- Unity is simpler but less customizable.</p></li>
+</ul>
+<p><strong>Libraries:</strong>
+- <strong>SFML</strong> (graphics, sound, input)</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Chosen for its simplicity and cross-platform support.</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p><strong>ASIO</strong> (network)
+- Lightweight, non-blocking, ideal for real-time UDP communication.</p></li>
+<li><p><strong>Conan</strong> (dependency manager)
+- Automates cross-platform builds for both server and client.</p></li>
+</ul>
+<p><strong>Design Patterns:</strong>
+- ECS Pattern for modularity.
+- Factory Pattern for entity creation.
+- Observer/Event system for state synchronization.</p>
+<p>—</p>
+</section>
+<section id="contribution-coding-guidelines">
+<h2>Contribution &amp; Coding Guidelines<a class="headerlink" href="#contribution-coding-guidelines" title="Link to this heading">¶</a></h2>
+<p><strong>Code Style:</strong>
+- Follow <strong>Epitech C++ standard</strong> (header guards, naming, formatting).
+- Each system and component has its own <cite>.hpp</cite> and <cite>.cpp</cite>.</p>
+<p><strong>Commit Rules:</strong>
+- Clear, imperative messages:</p>
+<blockquote>
+<div><p>Example: <cite>feat(network): add packet serialization</cite></p>
+</div></blockquote>
+<p><strong>Branch Naming:</strong>
+- <cite>feature/&lt;feature-name&gt;</cite> for new features
+- <cite>fix/&lt;issue-name&gt;</cite> for bug fixes</p>
+<p><strong>Documentation:</strong>
+- Use <strong>Doxygen</strong> comments for public functions.
+- Update <strong>Sphinx docs</strong> when adding systems or architecture changes.</p>
+<p><strong>Example Workflow:</strong>
+1. <cite>git checkout -b feature/movement-system</cite>
+2. Implement + test locally
+3. Update docs and run <cite>make html</cite>
+4. Open Pull Request</p>
+<p>—</p>
+</section>
+<section id="build-instructions">
+<h2>Build Instructions<a class="headerlink" href="#build-instructions" title="Link to this heading">¶</a></h2>
+<ol class="arabic">
+<li><p><strong>Configure and build:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mkdir<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>build
+cmake<span class="w"> </span>..
+make<span class="w"> </span>-j
+</pre></div>
+</div>
+</li>
+<li><p><strong>Run the server:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./r-type_server
+</pre></div>
+</div>
+</li>
+<li><p><strong>Run the client:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./r-type_client
+</pre></div>
+</div>
+</li>
+</ol>
+<p>—</p>
+</section>
+<section id="credits">
+<h2>Credits<a class="headerlink" href="#credits" title="Link to this heading">¶</a></h2>
+<p><strong>Developers:</strong>
+- Océane <strong>KODJELA</strong> — ECS Engine &amp; Systems
+- Zoltan <strong>BABKO</strong> — Networking &amp; Server
+- Aurel <strong>PLIYA</strong>, Paul <strong>MOURENS</strong>, Vlad <strong>BURGA</strong> — Client &amp; Graphics</p>
+<p>Developed as part of <strong>Epitech G-CPP-500 (2025)</strong>.</p>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="#">R-TYPE</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="#">Documentation overview</a><ul>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Océane Kodjela.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/index.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
