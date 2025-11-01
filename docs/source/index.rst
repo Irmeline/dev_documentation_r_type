@@ -94,6 +94,7 @@ The *Entity Component System* (**ECS**) decouples data from logic, improving sca
 - `PluginLoader` — A utility class responsible for loading shared libraries (`.so`/`.dll`/`.dylib`) at runtime.
 
 *Example:* How the Engine runs systems
+
 .. code-block:: cpp
 
    void Engine::run(std::function<bool()> condition) {
