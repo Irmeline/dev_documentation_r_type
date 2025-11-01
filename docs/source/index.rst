@@ -1,31 +1,35 @@
 .. R-TYPE Developer Documentation master file, created by
    sphinx-quickstart on Sat Oct 11 13:24:07 2025.
 
-======================================
+==================================
 R-TYPE Developer Documentation
-======================================
+==================================
 
-**R-TYPE** is a multiplayer shoot’em up video game developed in **C++20**, inspired by the classic arcade game *R-Type*.  
+*R-TYPE* is a multiplayer shoot’em up video game developed in *C++20*, inspired by the classic arcade game *R-Type*.
 The player controls a spaceship that must defeat waves of enemies and dodge incoming projectiles.
 
-The main goal of this project is to design a **modular, reusable, and networked game engine** using an **ECS (Entity Component System)** architecture.  
-The **client** manages graphics and inputs (via **SFML**), while the **server** handles logic, synchronization, and communication (via **ASIO**).
+The main goal of this project is to design a **modular, reusable, and networked game engine** using an *ECS (Entity Component System)* architecture.
+A core principle of this engine is its **complete independence from any specific graphics or audio library**.
 
-This documentation is intended for developers joining the project.  
+- The **Engine** provides a generic framework for creating games.
+- The **Client** is a thin application that loads a **graphics backend plugin** (e.g., for SFML or SDL) to handle rendering and input.
+- The **Server** is a headless application that manages game logic, synchronization, and communication via *ASIO*.
+
+This documentation is intended for developers joining the project.
 It focuses on:
-- Understanding the **architecture** (ECS, systems, networking),
-- Knowing how to **build and run** the project,
-- Following **team conventions** and **code contribution rules**.
+- Understanding the *high-level architecture* (Engine, Backends, Game Logic).
+- Knowing how to *build and run* the project.
+- Following *team conventions* and *code contribution rules*.
 
 .. toctree::
    :maxdepth: 2
-   :caption: 📚 Table of Contents:
-   server
+   :caption: Table of Contents:
+
    overview
    architecture
-   ecs_engine
-   components
-   systems
+   engine_core
+   graphics_abstraction
+   game_logic
    networking
    build_instructions
    comparative_study
@@ -37,19 +41,26 @@ It focuses on:
 Overview
 ========
 
-R-Type is divided into **three core modules**:
+The R-Type project is divided into **four distinct parts**:
 
-1. **Engine (ECS Core Library)**  
-   - Implements the Entity Component System architecture.  
-   - Manages entities, components, and systems.  
-   - Shared between client and server.
+1. **Engine (Core Library)**
+   - A **static library** containing the generic heart of the project.
+   - Implements the Entity Component System (`Registry`, `sparse_array`), the `Engine` loop, and the `EventBus`.
+   - Contains **abstract interfaces** for graphics, audio, and input (`IGraphicsFactory`, `IRenderWindow`, `ISprite`...).
 
-2. **Client (Front-end Application)**  
-   - Uses **SFML** for rendering, audio, and input.  
-   - Communicates with the server to display synchronized game states.
+2. **Graphics/Audio Backends (Plugin Libraries)**
+   - **Shared libraries** (`.so`/`.dll`/`.dylib`) that act as "translators" for a specific multimedia library.
+   - Example: ``SFMLBackend`` implements the engine's abstract interfaces using SFML.
+   - The engine can load any compatible backend at runtime, making it truly cross-platform and flexible.
 
-3. **Server (Game Logic and Networking)**  
-   - Manages all connected clients, runs the simulation, and ensures consistency using **ASIO (UDP)**.
+3. **Game Logic (R-Type Specific)**
+   - Contains all code specific to the R-Type game.
+   - **Server Logic:** `AISystem`, `CollisionSystem`, `GameRulesSystem` (with Lua scripting), `WeaponSystem`.
+   - **Client Logic:** `ClientNetworkSyncSystems`, `ScrollingSystem`.
+   - **Shared Logic:** Common components (`Position`, `Health`...) and network protocol.
+
+4. **Executables (Client & Server)**
+   - Thin applications that assemble the Engine, load a backend (for the client), and add the R-Type specific game systems.
 
 ---
 
@@ -61,379 +72,133 @@ Architecture
    :alt: R-Type Architecture Diagram
    :width: 80%
 
-**High-level architecture:**
+*High-level architecture:*
 
-- The **Server** maintains the authoritative world state.
-- The **Client** sends inputs and renders visuals based on server updates.
-- The **Engine (ECS)** handles all entity logic and is shared between both.
+- The **Engine** is the foundation, providing generic services and interfaces.
+- A **Backend Plugin** (like SFMLBackend) implements these interfaces.
+- The **Server** maintains the authoritative world state, while the **Client** renders it using the loaded backend.
 
-Each entity in the game (e.g., Player, Enemy, Projectile) is represented by a **set of components** (data) processed by **systems** (logic).
+This "pluggable" architecture ensures that the core engine is never dependent on a specific rendering technology.
 
 ---
 
-ECS Core Engine
-===============
+Engine Core
+===========
 
-The **Entity Component System** decouples data from logic, improving scalability and maintainability.
+The *Entity Component System* (**ECS**) decouples data from logic, improving scalability and maintainability.
 
-**Core Components:**
-- ``Registry`` — Stores and manages all entities and components.  
-- ``sparse_array`` — Efficient storage for optional components.  
-- ``System`` classes — Apply updates (movement, collisions, etc.) to relevant entities.
+*Core Classes:*
+- `Registry` — A powerful container for all entities and components, designed to be type-safe and efficient.
+- `Engine` — The main loop orchestrator. It manages a list of `ISystem` and calls their `update` method at a fixed rate.
+- `EventBus` — A communication channel allowing systems to interact in a decoupled manner.
+- `PluginLoader` — A utility class responsible for loading shared libraries (`.so`/`.dll`/`.dylib`) at runtime.
 
-**Example:** Movement System
-
+*Example:* How the Engine runs systems
 .. code-block:: cpp
 
-   void MovementSystem::update(Registry &reg, float deltaTime) {
-       auto &positions = reg.get_components<Position>();
-       auto &velocities = reg.get_components<Velocity>();
-
-       for (size_t i = 0; i < positions.size(); ++i) {
-           if (positions[i] && velocities[i]) {
-               positions[i]->x += velocities[i]->dx * deltaTime;
-               positions[i]->y += velocities[i]->dy * deltaTime;
+   void Engine::run(std::function<bool()> condition) {
+       // ... time management (deltaTime) ...
+       while (m_isRunning && condition()) {
+           // ...
+           for (const auto& system : m_systems) {
+               // The Engine calls update on each registered system
+               system->update(registry, deltaTime);
            }
        }
    }
 
-This ensures **each component has a single responsibility**, making the engine easily extensible.
+    void Engine::run(std::function<bool()> condition) {
+        const std::chrono::duration<float> timeStep(1.0f / 60.0f); // 60 ticks/sec
+            // ... time management (deltaTime) ...
+
+        while (m_isRunning) {
+            auto currentTime = std::chrono::steady_clock::now();
+                // ... time management (deltaTime) ...
+
+            while (accumulator >= timeStep.count()) {
+                for (const auto& system : m_systems) {
+                    // The Engine calls update on each registered system
+                    system->update(registry, timeStep.count());
+                }
+                accumulator -= timeStep.count();
+            }
+
+        }
+    }
 
 ---
 
-Components
-==========
+Graphics & Audio Abstraction
+============================
 
-Each component represents **a specific property** of an entity.
+To achieve true modularity, the engine **never uses SFML or any other library directly**. It communicates through a set of abstract interfaces.
 
-.. code-block:: cpp
+*Key Interfaces:*
+- `IGraphicFactory` — The "master factory" responsible for creating all other concrete graphics/audio objects.
+- `IRenderWindow` — An abstract representation of a window, handling events and views.
+- `IRenderer` — A "drawer" that knows how to render abstract objects like `ISprite`.
+- `ISprite`, `IText`, `ITexture`, `IFont` — Abstract representations of graphical objects and resources.
+- `ISound`, `ISoundBuffer` — Abstract representations of audio objects.
+- `IEvents` — The "ALL events" represent any possile events that can happen during the game
 
-   struct Position { double x, y; };
-   struct Velocity { double dx, dy; };
-   struct Health { int hp; };
-   struct Damage { int value; };
-   struct Hitbox { double width, height, x, y; };
-
-The **Registry** manages component creation and deletion dynamically, allowing flexible entity composition.
-
----
-
-Systems
-=======
-
-Systems represent the **logic layer** of the ECS (Entity Component System).  
-Each system iterates through entities that have certain components and applies transformations, physics, rendering, or networking.
-
-They form the core of how the R-Type game behaves — from movement and collisions to rendering and networking.
-
-| **MovementSystem**  : Updates entity positions based on their velocity (run on the  Server & Client)
-| **CollisionSystem** : Detects and handles collisions between entities  (run on the Server)
-| **RenderSystem**    : Draws sprites, backgrounds, and UI (run on the Client)
-| **AudioSystem**     : Plays sound effects and music  (run on the Client) 
-| **UdpModule**       : Manages network packets asynchronously (run on the Server)
+*Example :*
+1. The `main` function loads a plugin (e.g., `SFMLBackend.so`) using the `PluginLoader`.
+2. It gets an `SFMLFactory` (hidden behind an `IGraphicalFactory` interface).
+3. It uses this factory to create an `IRenderWindow` and passes it to the `RenderSystem`.
+4. The `RenderSystem` uses the window's `IRenderer` to `draw` an `ISprite`, without ever knowing it's dealing with SFML.
 
 ---
 
-Movement System
-===============
-
-The **MovementSystem** is responsible for moving entities by updating their positions according to their velocity.
-
-It works by iterating through all entities that contain both a `Position` and a `Velocity` component.
-
-**Responsibilities:**
-- Apply movement each frame based on delta time.
-- Keep entity positions consistent across server and client.
-- Prepare synchronization updates for the network system.
-
-**Example Implementation:**
-
-.. code-block:: cpp
-
-   void MovementSystem::update(Registry &reg, float deltaTime) {
-       auto &positions = reg.get_components<Position>();
-       auto &velocities = reg.get_components<Velocity>();
-
-       for (size_t i = 0; i < positions.size(); ++i) {
-           if (positions[i] && velocities[i]) {
-               positions[i]->x += velocities[i]->dx * deltaTime;
-               positions[i]->y += velocities[i]->dy * deltaTime;
-           }
-       }
-   }
-
-**Example Components:**
-
-.. code-block:: cpp
-
-   struct Position {
-       double x, y;
-       Position(double x_, double y_) : x(x_), y(y_) {}
-   };
-
-   struct Velocity {
-       double dx, dy;
-       Velocity(double dx_, double dy_) : dx(dx_), dy(dy_) {}
-   };
-
-**Usage:**
-The `MovementSystem` is executed every frame during the update loop on both the server (for physics) and client (for local interpolation).
-
----
-
-Collision System
-================
-
-The **CollisionSystem** detects when two entities overlap (collide) using their `Hit_box` components.  
-This system primarily runs on the **server**, as it determines gameplay events like hits, damage, or projectile impacts.
-
-**Responsibilities:**
-- Detect collisions between entities.
-- Compute collision points.
-- Trigger appropriate responses (damage, destruction, etc.).
-- Log collision events for the network system to synchronize.
-
-**Example Implementation:**
-
-.. code-block:: cpp
-
-   bool checkCollision(const Hit_box& a, const Hit_box& b) {
-       return (a.x < b.x + b.width &&
-               a.x + a.width > b.x &&
-               a.y < b.y + b.height &&
-               a.y + a.height > b.y);
-   }
-
-   std::pair<double, double> getCollisionPoint(const Hit_box& a, const Hit_box& b) {
-       double collisionX = std::max(a.x, b.x);
-       double collisionY = std::max(a.y, b.y);
-       return {collisionX, collisionY};
-   }
-
-   void CollisionSystem::update(Registry &reg) {
-       auto &hitboxes = reg.get_components<Hit_box>();
-
-       for (size_t i = 0; i < hitboxes.size(); ++i) {
-           for (size_t j = i + 1; j < hitboxes.size(); ++j) {
-               if (hitboxes[i] && hitboxes[j]) {
-                   if (checkCollision(*hitboxes[i], *hitboxes[j])) {
-                       auto point = getCollisionPoint(*hitboxes[i], *hitboxes[j]);
-                       std::cout << "Collision detected at (" << point.first << ", " << point.second << ")" << std::endl;
-                   }
-               }
-           }
-       }
-   }
-
-**Example Component:**
-
-.. code-block:: cpp
-
-   struct Hit_box {
-       double width, height, x, y;
-       Hit_box(double w, double h, double _x, double _y)
-           : width(w), height(h), x(_x), y(_y) {}
-   };
-
-**Usage:**
-- Used by the server to manage physical interactions.
-- Often triggers audio and visual feedback via `AudioSystem` and `RenderSystem`.
-
----
-
-Render System
-=============
-
-The **RenderSystem** handles the graphical rendering of all entities on the screen using **SFML**.  
-It draws backgrounds, entities, and UI text every frame.
-
-**Responsibilities:**
-- Load and cache textures.
-- Display entities (`Sprite` components).
-- Manage background scrolling.
-- Render text for UI and HUD elements.
-
-**Example Implementation:**
-
-.. code-block:: cpp
-
-   void RenderSystem::update(Registry& registry, sf::RenderWindow& window) {
-       window.clear();
-       renderBackground(registry, window);
-       renderEntities(registry, window);
-       renderUI(registry, window);
-       window.display();
-   }
-
-   void RenderSystem::renderEntities(Registry& registry, sf::RenderWindow& window) {
-       auto& renderComponents = registry.get_components<Sprite>();
-       for (size_t i = 0; i < renderComponents.array_size(); ++i) {
-           if (auto& comp = renderComponents[i]) {
-               if (comp->visible)
-                   window.draw(comp->sprite);
-           }
-       }
-   }
-
-**Example Components:**
-
-.. code-block:: cpp
-
-   struct Sprite {
-       sf::Sprite sprite;
-       bool visible = true;
-   };
-
-   struct Background {
-       sf::Sprite sprite;
-   };
-
-**Summary:**
-- Client-side only.
-- No logic, purely visual.
-- Works closely with the ECS registry.
-
----
-
-Audio System
-============
-
-The **AudioSystem** plays sounds and background music using **SFML Audio**.  
-It interacts with entities containing the `Audio` component.
-
-**Responsibilities:**
-- Manage sound buffers and playback.
-- Control music volume and looping.
-- React to events (e.g., explosions, collisions, etc.).
-
-**Example Implementation:**
-
-.. code-block:: cpp
-
-   void AudioSystem::playSound(const std::string& id, float volume) {
-       if (sounds.find(id) != sounds.end()) {
-           sounds[id].setVolume(volume * (masterVolume / 100.0f));
-           sounds[id].play();
-       }
-   }
-
-   void AudioSystem::update(Registry& registry) {
-       auto& audioComponents = registry.get_components<Audio>();
-       for (size_t i = 0; i < audioComponents.array_size(); ++i) {
-           if (auto& comp = audioComponents[i]) {
-               if (comp->shouldPlay) {
-                   playSound(comp->soundId, comp->volume);
-                   comp->shouldPlay = false;
-               }
-           }
-       }
-   }
-
-**Example Component:**
-
-.. code-block:: cpp
-
-   struct Audio {
-       std::string soundId;
-       float volume = 100.0f;
-       bool shouldPlay = false;
-   };
-
-**Usage:**
-- Client-only.
-- Called every frame to check for new sounds to play.
-
----
-
-UdpModule (Server Networking)
-=============================
-
-The **UdpModule** is the networking backbone of the R-Type server.  
-It manages client communication using **ASIO** with asynchronous UDP sockets.
-
-**Responsibilities:**
-- Listen for client input packets.
-- Send updates to clients.
-- Operate asynchronously to maintain real-time performance.
-
-**Example Implementation:**
-
-.. code-block:: cpp
-
-   UdpModule::UdpModule(asio::io_context &context, short port)
-   : _socket(context, asio::ip::udp::endpoint(asio::ip::udp::v4(), port))
-   {
-       std::cout << "[UDP] Listening on port " << port << std::endl;
-   }
-
-   void UdpModule::listen(std::function<void(std::error_code, std::size_t, udp::endpoint, std::array<char, 1024>&)> callback) {
-       buffer.fill(0);
-       _socket.async_receive_from(asio::buffer(buffer), _endpoint,
-           [this, callback](std::error_code ec, std::size_t len) {
-               callback(ec, len, _endpoint, buffer);
-           }
-       );
-   }
-
-**Example Usage:**
-
-.. code-block:: cpp
-
-   asio::io_context context;
-   UdpModule udpServer(context, 4242);
-
-   udpServer.listen([](std::error_code ec, std::size_t len, udp::endpoint client, std::array<char, 1024>& data) {
-       if (!ec)
-           std::cout << "Received from " << client.address() << ": "
-                     << std::string(data.data(), len) << std::endl;
-   });
-
-   context.run();
-
-**Summary:**
-- Server-only system.
-- Non-blocking, efficient, scalable.
-- Communicates via packets defined in the `Protocol.hpp`.
-
----
-
-Summary
-=======
-
-| **MovementSystem** : (type)Logic  (Moves entities based on velocity)
-| **CollisionSystem** : (type)Physics (Detects and resolves collisions)
-| **RenderSystem** : (type)Graphics (Draws all entities and UI)
-| **AudioSystem** : (type)Sound (Plays sound effects and music)
-| **UdpModule** :(type)Networking (Handles server-client communication)
-
-Together, these systems form the **core logic loop** of the R-Type engine:
-1. The **server** updates positions and handles collisions.
-2. The **client** renders visuals and plays sounds.
-3. Both communicate through **UDP** to stay synchronized in real time.
+Game Logic (Systems & Components)
+=================================
+
+Game logic is implemented in **Systems** that operate on **Components**.
+
+**Components** are pure data structs, separated into three categories:
+- **Shared:** `Position`, `Velocity`, `Health`, `Player`, `Bullet`... (known by both client and server).
+- **Server-Side:** `AI_enemy`, `AIState`, `Damage`... (gameplay logic).
+- **Client-Side:** `SpriteComponent`, `AnimationComponent`, `PlaySoundOnCreation`... (presentation logic).
+
+**Systems** contain all the logic, separated by responsibility:
+
+| System                    | Role                                                    | Location          |
+|---------------------------|---------------------------------------------------------|-------------------|
+| `GameRulesSystem`         | Manages level flow and entity spawning via Lua scripts. | Server            |
+| `AISystem`                | Controls enemy behavior based on `AIState`.             | Server            |
+| `CollisionSystem`         | Detects collisions and publishes events.                | Server            |
+| `MovementSystem`          | Applies velocity to position for all entities.          | Server (Shared)   |
+| `ServerNetworkSyncSystems`| Manages clients and synchronizes the game state.        | Server            |
+| `ClientNetworkSyncSystems`| Receives server state and updates the client registry.  | Client            |
+| `RenderSystem`            | Draws all visible entities using the `IRenderer`.       | Client            |
+| `AnimationSystem`         | Updates sprite animations.                              | Client            |
+| `AudioSystem`             | Plays sound effects.                                    | Client            |
+| `InputSystem`             | Translates window events into game inputs.              | Client            |
+
+*(*) The NetworkSystem in the Engine is generic; it's configured with game-specific logic in the `main`.*
 
 ---
 
 Networking
 ==========
 
-R-Type uses **ASIO (UDP)** for high-performance real-time networking.
+The project uses a client-server architecture with a **server-authoritative model**. Communication is primarily handled via **UDP** for low latency, managed by the **ASIO** library.
+But before that we have the **TCP** manage by **ASIO** too, that help especially in the menu part. It help in the lobby.
 
-**Server:**
-- Receives client input packets (e.g., movement, shooting).  
-- Updates the ECS world state.  
-- Sends back synchronized updates (entity positions, events).
-
-**Client:**
-- Sends player actions to the server.  
-- Receives updated world state packets.  
-- Updates its local ECS registry for rendering.
+*Protocol:*
+- The server first send a  **Welcome packet** that help the client to know his id.
+- The server sends a **"Snapshot of Changements"** at a fixed tick rate.
+- This single packet contains all creations, destructions, and modifications that occurred during the tick.
+- Each packet is numbered with a `serverTick` to allow clients to discard old or out-of-order packets.
+- Client inputs are sent as small, frequent UDP packets containing a bitmask of pressed keys.
 
 .. image:: _static/network_diagram.png
    :align: center
    :alt: Networking Data Flow
    :width: 75%
 
----
+*Key Classes:*
+- `ServerNetworkSyncSystems`: A configurable, engine-side system that handles the mechanics of broadcasting snapshots.
+- `ClientNetworkSyncSystems`: A client-side system that receives snapshots and updates the local `Registry`.
 
 Comparative & Technical Study
 =============================
@@ -476,7 +241,6 @@ Contribution & Coding Guidelines
 - `fix/<issue-name>` for bug fixes
 
 **Documentation:**
-- Use **Doxygen** comments for public functions.
 - Update **Sphinx docs** when adding systems or architecture changes.
 
 **Example Workflow:**
@@ -496,19 +260,19 @@ Build Instructions
 
       mkdir build && cd build
       cmake ..
-      make -j
+      make
 
 2. **Run the server:**
 
    .. code-block:: bash
 
-      ./r-type_server
+      ./r-type_server port
 
 3. **Run the client:**
 
    .. code-block:: bash
 
-      ./r-type_client
+      ./r-type_client addresse_IP port
 
 ---
 
