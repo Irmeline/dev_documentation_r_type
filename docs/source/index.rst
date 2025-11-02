@@ -161,7 +161,7 @@ Game logic is implemented in **Systems** that operate on **Components**.
 - **Client-Side:** `SpriteComponent`, `AnimationComponent`, `PlaySoundOnCreation`... (presentation logic).
 
 **Systems** contain all the logic, separated by responsibility:
-
++---------------------------+---------------------------------------------------------+-------------------+
 | System                    | Role                                                    | Location          |
 |---------------------------|---------------------------------------------------------|-------------------|
 | `GameRulesSystem`         | Manages level flow and entity spawning via Lua scripts. | Server            |
@@ -174,7 +174,7 @@ Game logic is implemented in **Systems** that operate on **Components**.
 | `AnimationSystem`         | Updates sprite animations.                              | Client            |
 | `AudioSystem`             | Plays sound effects.                                    | Client            |
 | `InputSystem`             | Translates window events into game inputs.              | Client            |
-
++---------------------------+---------------------------------------------------------+-------------------+
 *(*) The NetworkSystem in the Engine is generic; it's configured with game-specific logic in the `main`.*
 
 ---
@@ -183,9 +183,16 @@ Networking
 ==========
 
 The project uses a client-server architecture with a **server-authoritative model**. Communication is primarily handled via **UDP** for low latency, managed by the **ASIO** library.
-But before that we have the **TCP** manage by **ASIO** too, that help especially in the menu part. It help in the lobby.
+
+Before the server for the game is lauched.We have a lobby. Whay is it?
+
+When the lobby is launched, it waits for a connection: the client's connection. The client must send the mode in which they want to play:
+infinite: for the infinite world, solo mode
+create: to create their own room and wait for 3 other players before starting
+join: to join an existing room or their own room while waiting for other players
 
 *Protocol:*
+- The client send a
 - The server first send a  **Welcome packet** that help the client to know his id.
 - The server sends a **"Snapshot of Changements"** at a fixed tick rate.
 - This single packet contains all creations, destructions, and modifications that occurred during the tick.
@@ -273,7 +280,8 @@ Build Instructions
 
    .. code-block:: bash
 
-      ./r-type_client addresse_IP port
+      ./r-type_client addresse_IP port mode
+      mode: |infinite|create|join
 
 ---
 
