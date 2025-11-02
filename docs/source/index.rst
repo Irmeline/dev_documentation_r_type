@@ -163,7 +163,7 @@ Game logic is implemented in **Systems** that operate on **Components**.
 **Systems** contain all the logic, separated by responsibility:
 +---------------------------+---------------------------------------------------------+-------------------+
 | System                    | Role                                                    | Location          |
-|---------------------------|---------------------------------------------------------|-------------------|
++---------------------------+---------------------------------------------------------+-------------------+
 | `GameRulesSystem`         | Manages level flow and entity spawning via Lua scripts. | Server            |
 | `AISystem`                | Controls enemy behavior based on `AIState`.             | Server            |
 | `CollisionSystem`         | Detects collisions and publishes events.                | Server            |
