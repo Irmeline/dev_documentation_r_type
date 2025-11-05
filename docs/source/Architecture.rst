@@ -1,5 +1,5 @@
-Architecture du Moteur
-======================
+Architecture
+============
 
 
 .. image:: _static/architecture_diagram.jpg
