@@ -67,7 +67,7 @@ Architecture du Moteur
 .. image:: _static/architecture_diagram.jpg
    :align: center
    :alt: R-Type Architecture Diagram
-   :width: 80%
+   :width: 130%
 
 *High-level architecture:*
 
@@ -158,13 +158,11 @@ Game logic is implemented in **Systems** that operate on **Components**.
 - **Client-Side:** `SpriteComponent`, `AnimationComponent`, `PlaySoundOnCreation`... (presentation logic).
 
 **Systems** contain all the logic, separated by responsibility:
-.. list-table::
-   :widths: 25 50 15
-   :header-rows: 1
 
    * - System
      - Role
      - Location
+
    * - `GameRulesSystem`
      - Manages level flow and entity spawning via Lua scripts.
      - Server
