@@ -25,16 +25,9 @@ It focuses on:
    :maxdepth: 2
    :caption: Table of Contents:
 
-   overview
-   architecture
-   engine_core
-   graphics_abstraction
-   game_logic
-   networking
-   build_instructions
-   comparative_study
-   contribution_guide
-   credits
+   server
+   
+
 
 ---
 
@@ -67,7 +60,11 @@ The R-Type project is divided into **four distinct parts**:
 Architecture
 ============
 
-.. image:: _static/architecture_diagram.png
+Architecture du Moteur
+======================
+
+
+.. image:: _static/architecture_diagram.jpg
    :align: center
    :alt: R-Type Architecture Diagram
    :width: 80%
@@ -161,20 +158,44 @@ Game logic is implemented in **Systems** that operate on **Components**.
 - **Client-Side:** `SpriteComponent`, `AnimationComponent`, `PlaySoundOnCreation`... (presentation logic).
 
 **Systems** contain all the logic, separated by responsibility:
-+---------------------------+---------------------------------------------------------+-------------------+
-| System                    | Role                                                    | Location          |
-+---------------------------+---------------------------------------------------------+-------------------+
-| `GameRulesSystem`         | Manages level flow and entity spawning via Lua scripts. | Server            |
-| `AISystem`                | Controls enemy behavior based on `AIState`.             | Server            |
-| `CollisionSystem`         | Detects collisions and publishes events.                | Server            |
-| `MovementSystem`          | Applies velocity to position for all entities.          | Server (Shared)   |
-| `ServerNetworkSyncSystems`| Manages clients and synchronizes the game state.        | Server            |
-| `ClientNetworkSyncSystems`| Receives server state and updates the client registry.  | Client            |
-| `RenderSystem`            | Draws all visible entities using the `IRenderer`.       | Client            |
-| `AnimationSystem`         | Updates sprite animations.                              | Client            |
-| `AudioSystem`             | Plays sound effects.                                    | Client            |
-| `InputSystem`             | Translates window events into game inputs.              | Client            |
-+---------------------------+---------------------------------------------------------+-------------------+
+.. list-table::
+   :widths: 25 50 15
+   :header-rows: 1
+
+   * - System
+     - Role
+     - Location
+   * - `GameRulesSystem`
+     - Manages level flow and entity spawning via Lua scripts.
+     - Server
+   * - `AISystem`
+     - Controls enemy behavior based on `AIConfig`.
+     - Server
+   * - `CollisionSystem`
+     - Detects collisions and publishes events.
+     - Server
+   * - `MovementSystem`
+     - Applies velocity to position for all entities.
+     - Server (Shared)
+   * - `ServerNetworkSyncSystem`
+     - Manages clients and synchronizes the game state.
+     - Server (Engine)
+   * - `ClientNetworkSyncSystem`
+     - Receives server state and updates the client registry.
+     - Client
+   * - `RenderSystem`
+     - Draws all visible entities using the `IRenderer`.
+     - Client (Engine)
+   * - `AnimationSystem`
+     - Updates sprite animations.
+     - Client (Engine)
+   * - `AudioSystem`
+     - Plays sound effects.
+     - Client (Engine)
+   * - `InputSystem`
+     - Translates window events into game inputs.
+     - Client (Engine)
+
 *(*) The NetworkSystem in the Engine is generic; it's configured with game-specific logic in the `main`.*
 
 ---
@@ -213,18 +234,18 @@ Comparative & Technical Study
 
 **Languages:**
 - Chosen: **C++20**
-  - Enables templates, type-safety, and high-performance ECS patterns.
+- Enables templates, type-safety, and high-performance ECS patterns.
 - Alternatives: **Rust**, **C# (Unity ECS)**
-  - Rust ensures memory safety but has a smaller ecosystem.
-  - Unity is simpler but less customizable.
+- Rust ensures memory safety but has a smaller ecosystem.
+- Unity is simpler but less customizable.
 
 **Libraries:**
 - **SFML** (graphics, sound, input)
-  - Chosen for its simplicity and cross-platform support.
+- Chosen for its simplicity and cross-platform support.
 - **ASIO** (network)
-  - Lightweight, non-blocking, ideal for real-time UDP communication.
+- Lightweight, non-blocking, ideal for real-time UDP communication.
 - **Conan** (dependency manager)
-  - Automates cross-platform builds for both server and client.
+- Automates cross-platform builds for both server and client.
 
 **Design Patterns:**
 - ECS Pattern for modularity.  
@@ -242,7 +263,7 @@ Contribution & Coding Guidelines
 
 **Commit Rules:**
 - Clear, imperative messages:  
-  Example: `feat(network): add packet serialization`
+Example: `feat(network): add packet serialization`
 
 **Branch Naming:**
 - `feature/<feature-name>` for new features  
