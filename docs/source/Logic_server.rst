@@ -4,54 +4,44 @@ Creating a Game with the Engine
 
 This guide explains how to use the core Engine to create a new game, using R-Type as an example. It covers the data-driven workflow, from defining entities in JSON to scripting level behavior with Lua.
 
-The fundamental principle of the engine is **decoupling data from code**. Most of the game's logic and content is defined in external configuration files, not in C++.
+The fundamental principle is **decoupling data from code**. Most of the game's content is defined in external configuration files, not in C++.
 
 Workflow Overview
 -----------------
 
-Creating a game like R-Type involves four main steps:
+Creating a game involves four main steps:
 
-1.  **Define Entity "Blueprints"**: Create JSON files that describe the components of each type of entity.
-2.  **Script Level Behavior**: Create Lua scripts that define the sequence of events in a level.
-3.  **Implement Game Systems**: Write C++ classes (`ISystem`) that contain the core game logic (collisions, AI, etc.).
-4.  **Assemble and Run the Engine**: Write a main class (`GameServer`) that creates an `Engine` instance, adds all the necessary systems to it, and launches the main game loop.
+1. **Define Entity Blueprints**: Create JSON files that describe the components of each entity type.
+2. **Script Level Behavior**: Create Lua scripts that define the sequence of events in a level.
+3. **Implement Game Systems**: Write C++ classes (``ISystem``) for core game logic (collisions, AI, etc.).
+4. **Assemble and Run**: Write a ``GameServer`` class that creates an ``Engine`` instance, adds all systems, and launches the game loop.
 
 ---
 
 1. Entity Configuration (JSON Blueprints)
 =========================================
 
-Every type of entity in the game is defined as a "template" in a ``.json`` file. The `ServerEntityFactory` reads these files at startup.
+Every entity type is defined as a template in a ``.json`` file. The ``ServerEntityFactory`` reads these files at startup.
 
 Location
 --------
-``assets/templates/``
-or
-The folder that you wanted because you just need to precise the folder of your configuration files in the server code
+The path to the configuration folder is passed to the factory constructor. Example: ``../Server/config_files/``.
+
 Structure
 ---------
-Each JSON file contains a ``components`` object. Inside, each key is the name of a Component, and its value is an object containing the initial data for that component.
+Each JSON file contains a ``components`` object. Each key is a component name, and its value contains the initial data.
 
-Example: `bydo_scout.json`
------------------------------
-This file defines a basic enemy.
+Example: Enemy
+--------------
 
 .. code-block:: json
-   :caption: assets/templates/bydo_scout.json
+   :caption: config_files/enemy1.json
 
    {
      "components": {
-       "Health": {
-         "hp": 10
-       },
-       "Hitbox": {
-         "width": 66,
-         "height": 66
-       },
-       "Velocity": {
-         "dx": -200.0,
-         "dy": 0
-       },
+       "Health": { "hp": 10 },
+       "Hitbox": { "width": 66, "height": 66 },
+       "Velocity": { "dx": -200.0, "dy": 0 },
        "AI_enemy": {
          "behavior": "STRAIGHT_SHOOTER",
          "scoreValue": 100,
@@ -61,15 +51,11 @@ This file defines a basic enemy.
      }
    }
 
-- **`Health`, `Hitbox`, `Velocity`**: These are basic shared components.
-- **`AI_enemy`**: This is a game-specific component. The ``"behavior"`` key tells the `AISystem` which logic to apply to this entity. The other fields are parameters for that behavior.
-
-Example: `player_bullet.json`
---------------------------------
-This defines a projectile. Note that it has a `Damage` component but no `Health`.
+Example: Player Bullet
+----------------------
 
 .. code-block:: json
-   :caption: assets/templates/player_bullet.json
+   :caption: config_files/player_bullet.json
 
    {
      "components": {
@@ -80,193 +66,183 @@ This defines a projectile. Note that it has a `Damage` component but no `Health`
      }
    }
 
-To create a new type of enemy, you simply need to create a new JSON file and define its starting components.
+To create a new entity type, simply create a new JSON file with the desired components.
 
 ---
 
 2. Level Scripting (Lua)
 ========================
 
-The flow of each level is controlled by a Lua script. The `GameRulesSystem` is responsible for loading and executing this script.
+Level flow is controlled by Lua scripts. The ``GameRulesSystem`` loads and executes these scripts via the sol2 binding library.
 
 Location
 --------
-``assets/levels/``
+``Server/levels/``
 
 How It Works
 ------------
-The C++ `GameRulesSystem` creates a Lua virtual machine and "binds" several C++ functions, making them available to be called from Lua. The script must define a global ``update(deltaTime)`` function, which the `GameRulesSystem` calls at every game tick.
+The ``GameRulesSystem`` creates a Lua virtual machine and binds several C++ functions. The script must define a global ``update(deltaTime)`` function, called every game tick.
 
-Key Bound Functions
--------------------
-The engine exposes several crucial functions to Lua:
+Bound Functions
+---------------
 
-- ``create_entity(templateName, x, y)``: Asks the `ServerEntityFactory` to create a new entity from a JSON blueprint at a specific position.
-- ``get_random_position(min, max)``: A utility function to help with randomized spawning.
-- ``get_player_score(playerId)``: Retrieves the current score of a specific player.
-- ``get_all_player_ids()``: Returns a list of all currently connected players.
+.. list-table::
+   :widths: 35 65
+   :header-rows: 1
 
-Example: `test_level.lua`
--------------------------
+   * - Function
+     - Description
+   * - ``create_entity(template, x, y)``
+     - Creates an entity from a JSON blueprint at position (x, y).
+   * - ``get_random_position(min, max)``
+     - Returns a random float between min and max.
+   * - ``get_player_score(playerId)``
+     - Returns the current score of a player entity.
+   * - ``get_all_player_ids()``
+     - Returns a table of all connected player entity IDs.
+   * - ``notify_level_completed()``
+     - Publishes a ``LevelCompletedEvent`` to the EventBus.
+   * - ``load_level(scriptPath)``
+     - Loads and executes a new Lua script (used by the level manager).
+   * - ``spawn_powerup(type, x, y)``
+     - Creates a powerup entity of the given type.
+   * - ``spawn_boss(template, x, y, name)``
+     - Creates a boss entity and registers it for tracking.
+   * - ``is_boss_alive()``
+     - Returns true if the current boss entity still exists.
+   * - ``notify_warning(message)``
+     - Publishes a ``WarningEvent`` for client-side display.
+   * - ``load_victory_screen()``
+     - Publishes a ``GameVictoryEvent``.
+
+Level Manager
+-------------
+
+The game uses a **level manager** script that controls progression between levels:
+
+**Campaign Mode** (``level_manager.lua``):
 
 .. code-block:: lua
-   :caption: assets/levels/test_level.lua
 
-   -- State variables for this level script
-   game_time = 0.0
-   enemy_spawn_timer = 3.0
+   levels = {
+       { script = "level1.lua", name = "Asteroid Field",  boss = "Mechanical Parasite" },
+       { script = "level2.lua", name = "Enemy Territory", boss = "Bio-Guardian" },
+       { script = "level3.lua", name = "Alien Hive",      boss = "Hive Totem" },
+       { script = "level4.lua", name = "Final Assault",   boss = "Leviathan Warship" }
+   }
 
-   -- This function is called 60 times per second by the C++ Engine
+Each level script defines timed waves, boss encounters, powerup drops, and wall obstacles. When the boss is defeated, ``notify_level_completed()`` is called, which triggers the level manager to load the next level.
+
+**Infinite Mode** (``level_manager_infinite.lua``):
+
+Loads ``level0.lua`` directly. No boss, no progression. Enemies spawn in endless waves with increasing difficulty. The game ends when all players are dead.
+
+.. code-block:: lua
+   :caption: level0.lua (excerpt)
+
    function update(deltaTime)
        game_time = game_time + deltaTime
-       enemy_spawn_timer = enemy_spawn_timer - deltaTime
 
-       -- If the timer is finished...
-       if enemy_spawn_timer <= 0 then
-           print("[LUA] Spawning an enemy wave.")
-           
-           -- Get the number of connected players
-           local num_players = #get_all_player_ids()
-           
-           -- Spawn one enemy for each player at a random height
-           for i = 1, num_players do
-               local random_y = get_random_position(100.0, 980.0)
-               create_entity("bydo_scout", 2000, random_y)
-           end
-           
-           -- Reset the timer for the next wave
-           enemy_spawn_timer = 5.0 
+       if game_time >= next_wave_time then
+           spawn_wave()
+           next_wave_time = game_time + current_interval
        end
    end
 
-To create a new level, you simply need to write a new ``.lua`` file with its own unique logic in the ``update`` function.
+The infinite mode scales difficulty every 3 waves: more enemies, faster spawns, harder enemy types, wall obstacles, and bonus elite squads.
 
 ---
 
-3. The Engine: Assembling and Running Systems
-==============================================
+3. Game Systems
+===============
 
-The ``Engine`` class is the heart of a game instance. It doesn't have any game logic itself; it is an orchestrator that holds a ``Registry`` and executes a list of **Systems** in a continuous loop.
+Systems contain all game logic. They are C++ classes implementing ``ISystem::update(Registry&, float)``.
 
-Adding Systems
+Server Systems
 --------------
-Systems contain all the game's logic. You must create and add them to the Engine instance for them to have any effect. This is typically done in the constructor of your main game class (e.g., `GameServer`).
 
-The **order** in which you add systems is **critical**, as it defines the order of execution within each game tick. A logical order is essential for a stable simulation.
+.. list-table::
+   :widths: 25 75
+   :header-rows: 1
 
-.. code-block:: cpp
-   :caption: GameServer.cpp (constructor - System Assembly)
-
-   // 1. First, add systems that handle inputs and game rules.
-   _engine.addSystem(_networkSystem); // Contains the InputProcessor
-   _engine.addSystem(std::make_unique<GameRulesSystem>(...));
-   _engine.addSystem(std::make_unique<AISystem>(...));
-
-   // 2. Then, add systems that trigger actions based on those rules.
-   _engine.addSystem(std::make_unique<WeaponSystem>(...));
-
-   // 3. Next, simulate the physics based on the new state.
-   _engine.addSystem(std::make_unique<MovementSystem>());
-   _engine.addSystem(std::make_unique<CollisionSystem>(...));
-
-   // 4. Finally, add cleanup systems.
-   _engine.addSystem(std::make_unique<JanitorSystem>(...));
-
-   // The NetworkSystem's `update` will be called again at the end of the tick
-   // (in this list) to broadcast the final state.
-
-Running the Engine
-------------------
-Once all systems are added, the game is ready to be launched. The `Engine` provides a ``run()`` method that starts the main game loop. Since a game server must run in parallel to the lobby, this is typically done in a separate thread.
-
-.. code-block:: cpp
-   :caption: GameServer.cpp (start method)
-
-   void GameServer::start() {
-       _isRunning = true;
-       // We create a new thread that will execute our game loop function.
-       _gameThread = std::thread(&GameServer::gameLoop, this);
-   }
-
-   void GameServer::gameLoop() {
-       std::cout << "[GameServer] The game loop is starting." << std::endl;
-
-       // We call the Engine's run method, giving it a function
-       // that it will check at each tick to know if it should continue.
-       _engine.run([this]() { 
-           return _isRunning.load(); 
-       });
-
-       std::cout << "[GameServer] The game loop has ended." << std::endl;
-   }
-
-The `Engine::run` method itself contains the time-managed loop that calls `system->update()` 60 times per second, providing the crucial `deltaTime` for physics and timers.
-
-.. code-block:: cpp
-   :caption: Engine::run (conceptual)
-
-   void Engine::run(std::function<bool()> condition) {
-       auto lastTime = std::chrono::steady_clock::now();
-       
-       while (condition()) {
-           auto currentTime = std::chrono::steady_clock::now();
-           float deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
-           lastTime = currentTime;
-
-           // Execute all registered systems in order.
-           for (const auto& system : m_systems) {
-               system->update(registry, deltaTime);
-           }
-
-           // (Loop timing logic to maintain a fixed tick rate)
-       }
-   }
+   * - System
+     - Description
+   * - ``GameRulesSystem``
+     - Executes Lua scripts. Bridges C++ functions to Lua. Manages level progression.
+   * - ``AISystem``
+     - Controls enemy behavior based on the ``AI_enemy`` component: straight movement, sinusoidal patterns, shooting, kamikaze diving.
+   * - ``ForcePodSystem``
+     - Handles Force Pod attachment to players and synchronized shooting. When a player shoots, the pod fires additional bullets based on its type (base, red/spread, blue/ricochet, yellow/laser).
+   * - ``WeaponSystem``
+     - Reads ``ShootEvent`` from the EventBus and creates bullet entities using the entity factory.
+   * - ``MovementSystem``
+     - Updates entity positions: ``position += velocity * deltaTime``. Marks modified entities as dirty for network sync.
+   * - ``CollisionSystem``
+     - AABB collision detection. Handles damage application, powerup collection, Force Pod upgrades, and entity destruction.
+   * - ``StayWSystem``
+     - Clamps player entities within screen bounds. Destroys bullets and enemies that go off-screen.
+   * - ``ServerNetworkSystem``
+     - Broadcasts compressed delta snapshots to all clients. Resets player velocities after each tick. Manages client connections and ACKs.
 
 ---
 
-4. Game Server Assembly & Configuration
-=======================================
-*(Cette section remplace l'ancienne "Game Server Assembly")*
+4. Game Server Assembly
+=======================
 
-The `GameServer` class is the main entry point for a game instance. It is responsible for creating an `Engine`, adding all the systems, and configuring the generic network layer with game-specific logic.
+The ``GameServer`` class creates an ``Engine`` instance, adds all systems, and configures the network layer with game-specific callbacks.
 
 Configuring the Network System
 ------------------------------
-The `GenericServerNetworkSystem` is part of the Engine. It's a "blank slate" that needs to be told how your game works. This is done by providing it with callback functions (lambdas).
 
-**`setPlayerFactory`**
-  This tells the network system what to do when a brand-new client connects. The provided function is responsible for creating the player's entity.
+**Player Factory**: Tells the network system what to do when a new client connects.
 
-  .. code-block:: cpp
-     :caption: GameServer.cpp (constructor)
+.. code-block:: cpp
 
-     _networkSystem->setPlayerFactory(
-         // `[&]` captures `this` to access the factory
-         [&](Registry& reg, const udp::endpoint& ep) {
-             // We use our game's entity factory to create a player from the JSON template
-             return _factory.createEntity("player", reg, 100.0, 540.0);
-         }
-     );
+   _networkSystem->setPlayerFactory([&](Registry& reg, uint8_t shipColor) {
+       if (shipColor == 0)
+           return _factory.createEntity("player", reg, randomX, randomY);
+       else if (shipColor == 1)
+           return _factory.createEntity("playergreen", reg, randomX, randomY);
+       // ... (4 ship colors supported)
+   });
 
-**`setInputProcessor`**
-  This tells the network system how to interpret the raw data packets sent by clients.
+**Input Processor**: Tells the network system how to interpret client packets.
 
-  .. code-block:: cpp
-     :caption: GameServer.cpp (constructor)
+.. code-block:: cpp
 
-     _networkSystem->setInputProcessor(
-         // `[&]` captures `this` to access the EventBus
-         [&](Registry& reg, Entity playerId, const std::vector<char>& data) {
-             // We know our game uses PlayerInputPacket
-             PlayerInputPacket packet;
-             std::memcpy(&packet, data.data(), sizeof(packet));
+   _networkSystem->setInputProcessor(
+       [&](Registry& reg, Entity id, const std::vector<char>& data) {
+           _gameManage->handleIncomingPacket(reg, id, data);
+       });
 
-             // We translate the input into events for other systems to handle.
-             if (packet.input_mask & IN_SHOOT) {
-                 _eventBus.publish(PlayerWantsToShootEvent{playerId});
-             }
-             // (Logic to parse movement and update Velocity component...)
-         }
-     );
+System Assembly Order
+---------------------
 
-By providing these functions, you "teach" the generic network engine the rules of your specific game, allowing it to function correctly without containing any hardcoded game logic itself.
+.. code-block:: cpp
+   :caption: GameServer::init()
+
+   _engine.addSystem(std::move(gameRulesSystem));   // 1. Lua: spawn enemies
+   _engine.addSystem(std::make_unique<AISystem>());  // 2. Enemy AI + shoot
+   _engine.addSystem(std::make_unique<ForcePodSystem>());  // 3. Pod shoot
+   _engine.addSystem(std::make_unique<WeaponSystem>());    // 4. Create bullets
+   _engine.addSystem(std::make_unique<MovementSystem>());  // 5. Move entities
+   _engine.addSystem(std::make_unique<CollisionSystem>()); // 6. Detect hits
+   _engine.addSystem(std::make_unique<StayWSystem>());     // 7. Bounds check
+   _engine.addSystem(std::move(_networkSystem));           // 8. Broadcast state
+
+Running the Engine
+------------------
+
+Each ``GameServer`` runs in its own thread, started by the Lobby:
+
+.. code-block:: cpp
+
+   void GameServer::start() {
+       _running = true;
+       _gameThread = std::thread(&GameServer::run, this);
+   }
+
+   void GameServer::run() {
+       init();
+       _engine.run();  // Blocks until _engine.stop() is called
+   }

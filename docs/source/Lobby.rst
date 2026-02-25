@@ -2,140 +2,159 @@
 Lobby
 =====
 
-The Lobby is the central hub of the R-Type server. It acts as the primary entry point for all clients, managing game sessions rather than the game simulation itself. Its main responsibilities are to handle new connections, manage a list of active game rooms, and redirect players to the appropriate game server instance.
+The Lobby is the central hub of the R-Type server. It acts as the primary entry point for all clients, managing game sessions rather than the game simulation itself. It handles new connections, manages a list of active game rooms, and redirects players to the appropriate ``GameServer`` instance.
 
-This system runs on a fixed, public port (e.g., 4242), while each individual game runs on a separate, dynamically assigned port.
+The lobby runs on a fixed, configurable port (default: 3000), while each game room runs on a separate, dynamically assigned port.
 
 High-Level Architecture
 -----------------------
 
-1.  A **Client** connects to the **Lobby** on the main port.
-2.  The client sends a request to either create or join a game room.
-3.  The **Lobby** processes the request:
-    - If a suitable public room exists, it adds the player.
-    - If not, it creates a new **GameServer** instance.
-4.  The `GameServer` instance starts listening on a **new, private port**.
-5.  The **Lobby** sends a `JoinSuccessPacket` back to the client, containing the **new port** for the game.
-6.  The **Client** disconnects from the lobby and reconnects to the dedicated game port to start playing.
+1. A **Client** sends a ``HELLO`` packet to the **Lobby** on the main port.
+2. The Lobby responds with a ``ROOM_LIST`` packet containing all active multiplayer rooms.
+3. The client sends a request to create or join a game room.
+4. The **Lobby** processes the request:
 
-This architecture provides excellent isolation between game sessions and prevents the lobby from becoming a bottleneck.
+   - ``CREATE_ROOM``: Creates a new multiplayer room. The player is the owner and waits for up to 3 more players.
+   - ``JOIN_ROOM``: Joins an existing room by name. When the room reaches 4 players, the game starts.
+   - ``CREATE_INFINITE``: Creates a single-player infinite mode room that starts immediately.
+
+5. The ``GameServer`` instance starts listening on a **new, dedicated port**.
+6. The **Lobby** sends a ``JOIN_SUCCESS`` or ``GAME_STARTING`` packet containing the game port.
+7. The **Client** connects to the dedicated game port.
+
+This architecture provides isolation between game sessions and prevents the lobby from becoming a bottleneck.
+
+Room Types
+----------
+
+.. list-table::
+   :widths: 20 40 15
+   :header-rows: 1
+
+   * - Type
+     - Description
+     - Max Players
+   * - ``Room_Multiplayer``
+     - Standard room. Owner creates it, others join. Game starts when full (4 players).
+     - 4
+   * - ``Solo_Room``
+     - Infinite mode. Created and started immediately for a single player.
+     - 1
 
 Key Classes
 -----------
 
 ``Lobby``
-  The main class that orchestrates the lobby. It listens for incoming UDP packets on the main server port and manages all `GameServer` instances. Its core logic resides in a packet-processing loop.
-
-  .. code-block:: cpp
-     :caption: Lobby.hpp (extrait)
-
-     class Lobby {
-     public:
-         Lobby(asio::io_context& io_context, unsigned short lobby_port);
-     
-     private:
-         void handleReceive(const asio::error_code& error, std::size_t bytes);
-         void processLobbyPacket(const udp::endpoint& sender, const std::vector<char>& data);
-         
-         void handleCreateRoom(const udp::endpoint& host, const CreateRoomPacket& packet);
-         void handleQuickJoin(const udp::endpoint& newPlayer);
-
-         asio::io_context& _io_context;
-         udp::socket _socket;
-         std::map<int, RoomInfo> _rooms;
-     };
+  The main class that orchestrates the lobby. It listens for incoming UDP packets and manages all ``GameServer`` instances.
 
 ``GameServer``
-  An object representing a complete, independent R-Type game session. Each ``GameServer`` instance runs its own Engine loop in a separate thread and communicates on its own dedicated port.
+  An object representing a complete, independent R-Type game session. Each instance runs its own ``Engine`` loop in a separate thread and communicates on its own dedicated port.
 
-  .. code-block:: cpp
-     :caption: GameServer.hpp (extrait)
+``RoomInfo``
+  A struct holding room state: name, type, player list, banned players, owner endpoint, and a ``unique_ptr<GameServer>`` for the game instance.
 
-     class GameServer {
-     public:
-         GameServer(asio::io_context& io_context, unsigned short port, const std::string& levelPath);
-         
-         void start(); // Starts the game loop in a new thread
-         void stop();
-         unsigned short getPort() const;
-
-     private:
-         void gameLoop();
-
-         Engine _engine;
-         std::thread _gameThread;
-         std::atomic<bool> _isGameRunning;
-     };
-
-
-Client Actions
---------------
-
-The client communicates with the lobby using specific opcodes defined in the protocol.
+Client-to-Lobby Opcodes
+------------------------
 
 .. list-table::
    :widths: 20 60
    :header-rows: 1
 
-   * - OpCode (Client -> Server)
+   * - OpCode
      - Description
+   * - ``HELLO``
+     - Initial connection. Lobby registers the client and sends back the room list.
    * - ``CREATE_ROOM``
-     - Requests the creation of a new, private game room. The player is automatically placed inside as the host.
+     - Creates a new multiplayer room. Contains ``roomName`` and ``playerPseudo``.
+   * - ``JOIN_ROOM``
+     - Joins an existing room by name. Contains ``roomName`` and ``playerPseudo``.
    * - ``CREATE_INFINITE``
-     - Requests the creation of a private, single-player game room that starts immediately.
+     - Creates a solo infinite mode room. Contains ``playerPseudo``. Starts immediately.
+   * - ``LEAVE_ROOM``
+     - Leaves the current room. Contains ``roomName`` and ``playerPseudo``.
+   * - ``ACK``
+     - Acknowledges receipt of a reliable packet (by sequence number).
+   * - ``ID``
+     - Sent after a kick/ban to inform the lobby of the player's entity ID for cleanup.
 
-Server Responses
-----------------
-
-The lobby responds to client requests with specific packets.
+Lobby-to-Client Opcodes
+------------------------
 
 .. list-table::
    :widths: 20 60
    :header-rows: 1
 
-   * - OpCode (Server -> Client)
+   * - OpCode
      - Description
+   * - ``ROOM_LIST``
+     - Compressed list of all active multiplayer rooms (name, player count, player names). Sent after HELLO, room changes, or joins.
+   * - ``ROOM_CREATED``
+     - Confirms room creation. Contains ``roomId``.
+   * - ``PLAYER_JOINED``
+     - Confirms the player has joined a room that is not yet full.
+   * - ``GAME_STARTING``
+     - Sent to all players in a room when it becomes full. Contains ``gamePort``.
    * - ``JOIN_SUCCESS``
-     - Confirms that the player has successfully created or joined a room. **Crucially, this packet contains the new, dedicated game port** the client must connect to.
+     - Sent for infinite mode. Contains the dedicated ``gamePort``.
    * - ``JOIN_FAILURE``
-     - Informs the client that they could not join a room (e.g., room is full).
+     - Player cannot join (e.g., banned from the room).
+   * - ``ROOM_FULL``
+     - The requested room already has 4 players.
+   * - ``KICKPLAYER``
+     - Broadcast to all players in a room when a player is kicked.
+   * - ``BANPLAYER``
+     - Broadcast to all players in a room when a player is banned.
 
-.. code-block:: cpp
-   :caption: Protocol.hpp (extrait)
+Reliable Delivery
+-----------------
 
-   struct JoinSuccessPacket {
-       uint8_t opcode = OpCode::JOIN_SUCCESS;
-       unsigned short port;
-   };
+All lobby packets include a ``sequence`` number. The lobby stores pending reliable packets and retransmits them every second until an ``ACK`` is received from the client. This ensures that critical packets (``JOIN_SUCCESS``, ``GAME_STARTING``, ``ROOM_LIST``) are not lost.
 
+Room List Compression
+---------------------
 
-Example Workflow: Join
-----------------------------
+The ``ROOM_LIST`` packet can be large (up to 16 rooms with 4 player names each). It is compressed with zlib before transmission. The final packet is: ``[ROOM_LIST opcode byte] + [zlib compressed payload]``.
 
-1.  **Client** sends a ``JOIN`` packet to the server on port **4242**.
-2.  **Lobby** receives the packet and calls ``handleJoin``. It finds no available rooms.
-3.  The ``Lobby`` creates and starts a new ``GameServer`` instance for **Room 0**, instructing it to listen on a new port, e.g., **4243**.
+Admin Console
+-------------
 
-    .. code-block:: cpp
-       :caption: Lobby::handleQuickJoin (extrait)
+The server provides an interactive admin console running in a separate thread. Available commands:
 
-       if (targetRoomId == -1) {
-           // No room found, create a new one. This implicitly calls handleCreateRoom.
-           handleCreateRoom(newPlayer, false); // `false` for isPrivate
-           return;
-       }
+.. list-table::
+   :widths: 25 50
+   :header-rows: 1
 
-4.  **Lobby** sends a ``JOIN_SUCCESS`` packet back to the client, containing ``{ port: 4243 }``.
-5.  **Client** receives the packet, disconnects from the lobby, and reconfigures its `ClientNetworkSystem` to communicate on port **4243**.
-6.  **Subsequent players** sending ``JOIN`` will be added to Room 0 until it has 4 players.
-7.  When the **4th player** joins, the `Lobby` calls the final trigger:
+   * - Command
+     - Description
+   * - ``rooms``
+     - Print all active rooms with their ID, name, type, player count, and port.
+   * - ``players``
+     - Print all players in all rooms with their pseudo, endpoint, and owner status.
+   * - ``kick <pseudo> <room>``
+     - Remove a player from a room. A ``KICKPLAYER`` packet is broadcast to all players in the room.
+   * - ``ban <pseudo> <room>``
+     - Remove a player and add them to the room's ban list. A ``BANPLAYER`` packet is broadcast. The player cannot rejoin this room.
+   * - ``stop``
+     - Stop the server and all game instances.
+   * - ``help``
+     - Display available commands.
 
-    .. code-block:: cpp
-       :caption: Lobby::handleQuickJoin (extrait)
+Example Workflow: Infinite Mode
+-------------------------------
 
-       if (roomToJoin.players.size() == 4) {
-           std::cout << "[Lobby] La Room " << targetRoomId << " est pleine ! Démarrage de la partie." << std::endl;
-           
-           // Gives the signal to the GameServer instance to start its Engine loop.
-           roomToJoin.gameInstance->start();
-       }
+1. **Client** sends ``HELLO`` to lobby port 3000.
+2. **Lobby** responds with ``ROOM_LIST`` (may be empty).
+3. **Client** sends ``CREATE_INFINITE`` with pseudo.
+4. **Lobby** creates a ``GameServer`` on port 3001, loads ``level_manager_infinite.lua``, and starts it immediately.
+5. **Lobby** sends ``JOIN_SUCCESS { port: 3001 }`` to the client.
+6. **Client** connects to port 3001 and begins gameplay.
+
+Example Workflow: Multiplayer Room
+----------------------------------
+
+1. **Player A** sends ``CREATE_ROOM { roomName: "MyRoom", pseudo: "Alice" }``.
+2. **Lobby** creates the room and sends ``ROOM_CREATED`` to Player A. Broadcasts updated ``ROOM_LIST`` to all lobby clients.
+3. **Players B, C** send ``JOIN_ROOM { roomName: "MyRoom", pseudo: "Bob/Charlie" }``. Lobby sends ``PLAYER_JOINED`` to each. Updates room list.
+4. **Player D** sends ``JOIN_ROOM``. Room is now full (4/4).
+5. **Lobby** sends ``GAME_STARTING { gamePort: 3001 }`` to all 4 players. Calls ``GameServer::start()``.
+6. All 4 clients connect to port 3001 and begin gameplay.

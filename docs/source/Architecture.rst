@@ -1,135 +1,185 @@
+============
 Architecture
 ============
 
+This section describes the high-level architecture of the R-Type project, the folder structure, and how the different modules interact.
 
-.. image:: _static/architecture_diagram.jpg
-   :align: center
-   :alt: R-Type Architecture Diagram
-   :width: 130%
+Project Structure
+-----------------
 
-*High-level architecture:*
+.. code-block:: text
 
-- The **Engine** is the foundation, providing generic services and interfaces.
-- A **Backend Plugin** (like SFMLBackend) implements these interfaces.
-- The **Server** maintains the authoritative world state, while the **Client** renders it using the loaded backend.
+   R-Type/
+   ├── engine/
+   │   ├── include/
+   │   │   ├── core/
+   │   │   │   ├── registry.hpp              # ECS Registry (sparse arrays, entities)
+   │   │   │   ├── sparse_array.hpp           # Contiguous component storage
+   │   │   │   ├── entity.hpp                 # Entity type alias
+   │   │   │   ├── PluginLoader.hpp           # Dynamic backend loading
+   │   │   │   ├── RessourceManager.hpp       # Asset loader (textures, fonts, sounds)
+   │   │   │   ├── client_entity_factory.hpp  # JSON-driven entity creation (client)
+   │   │   │   ├── server_entity_factory.hpp  # JSON-driven entity creation (server)
+   │   │   │   ├── Components/
+   │   │   │   │   ├── client_components.hpp  # SpriteComponent, TextComponent, etc.
+   │   │   │   │   └── server_components.hpp  # Position, Velocity, Health, Player, etc.
+   │   │   │   └── Systems/
+   │   │   │       ├── Engine.hpp             # System pipeline + game loop
+   │   │   │       ├── ISystem.hpp            # Abstract system interface
+   │   │   │       ├── InputSystem.hpp        # Keyboard input → events
+   │   │   │       ├── RenderSystem.hpp       # Draws sprites + texts
+   │   │   │       ├── UISystem.hpp           # HUD, overlays, game over, victory
+   │   │   │       ├── Animation.hpp          # Sprite sheet animation
+   │   │   │       ├── scrollingSystem.hpp    # Parallax backgrounds
+   │   │   │       ├── audio.hpp              # Sound playback
+   │   │   │       ├── Movements.hpp          # Position += Velocity * dt
+   │   │   │       ├── Collision.hpp          # AABB collision + damage
+   │   │   │       ├── Weapon.hpp             # Bullet creation from ShootEvents
+   │   │   │       ├── ForcePod.hpp           # Force Pod attachment + shooting
+   │   │   │       ├── Ennemy_ai.hpp          # Enemy behaviors (straight, sin, etc.)
+   │   │   │       ├── Game_rulesSystems.hpp  # Lua scripting bridge
+   │   │   │       ├── StayW.hpp              # Keep entities within screen bounds
+   │   │   │       └── GameLogicSystem.hpp    # Local player input event
+   │   │   ├── graphics/
+   │   │   │   ├── IGraphicFactory.hpp        # Abstract factory
+   │   │   │   ├── IRenderWindow.hpp          # Window + event polling
+   │   │   │   ├── IRenderer.hpp              # Draw calls (sprites, text, shapes)
+   │   │   │   ├── Isprite.hpp                # Drawable textured object
+   │   │   │   ├── ITexture.hpp               # Image data
+   │   │   │   ├── IFont.hpp                  # Font data
+   │   │   │   ├── IText.hpp                  # Drawable text
+   │   │   │   ├── Isound.hpp                 # Sound playback
+   │   │   │   ├── IsoundBuffer.hpp           # Sound data
+   │   │   │   └── IEvents.hpp                # Event types, key codes
+   │   │   └── network/
+   │   │       ├── protocol.hpp               # Opcodes, packet structs
+   │   │       ├── serialisation.hpp          # Binary read/write helpers
+   │   │       ├── Datacompression.hpp        # zlib compression
+   │   │       ├── Event.hpp                  # EventBus + game events
+   │   │       ├── GameConfig.hpp             # EntityType enum + name mapping
+   │   │       ├── Server_NetworkSyncSystems.hpp
+   │   │       └── Client_NetworkSyncSystems.hpp
+   │   └── src/                               # .cpp implementations
+   │
+   ├── Server/
+   │   ├── include/
+   │   │   ├── Lobby.hpp                      # Room management
+   │   │   ├── GameServer.hpp                 # One game instance per room
+   │   │   └── GameManage.hpp                 # Input packet processor
+   │   ├── src/
+   │   │   ├── main.cpp                       # Lobby + admin console
+   │   │   ├── network/
+   │   │   │   ├── Lobby.cpp
+   │   │   │   ├── LobbyDashboard.cpp         # kick, ban, rooms, players
+   │   │   │   ├── GameServer.cpp
+   │   │   │   ├── GameManage.cpp
+   │   │   │   └── LoggerGlobal.cpp
+   │   │   └── ...
+   │   ├── config_files/                      # Server-side entity JSON templates
+   │   └── levels/                            # Lua level scripts
+   │       ├── level_manager.lua              # 4-level campaign progression
+   │       ├── level_manager_infinite.lua     # Infinite mode manager
+   │       ├── level0.lua                     # Infinite mode (endless waves)
+   │       ├── level1.lua                     # Level 1: Asteroid Field
+   │       ├── level2.lua                     # Level 2: Enemy Territory
+   │       ├── level3.lua                     # Level 3: Alien Hive
+   │       └── level4.lua                     # Level 4: Final Assault
+   │
+   ├── Client/
+   │   ├── include/
+   │   │   ├── menuSystem.hpp                 # Lobby UI + room browser
+   │   │   └── renderMenu.hpp                 # Menu rendering
+   │   ├── src/
+   │   │   └── main.cpp                       # Session loop (menu ↔ game ↔ cleanup)
+   │   ├── config_files/                      # Client-side entity JSON templates
+   │   ├── assets/                            # Sprites, fonts, sounds
+   │   └── resources.json                     # Asset catalogue
+   │
+   └── Backends/
+       └── SFMLBackend/                       # SFML implementation of all interfaces
+           ├── include/
+           └── src/
 
-This "pluggable" architecture ensures that the core engine is never dependent on a specific rendering technology.
 
----
+ECS Architecture
+----------------
 
-Engine Core
------------
+The engine uses an **Entity Component System** architecture where:
 
-The *Entity Component System* (**ECS**) decouples data from logic, improving scalability and maintainability.
+- **Entities** are simple numeric IDs (``size_t``).
+- **Components** are plain data structs stored in ``sparse_array<T>`` containers inside the ``Registry``.
+- **Systems** are classes implementing ``ISystem::update(Registry&, float)`` that operate on components each frame.
 
-*Core Classes:*
-- `Registry` — A powerful container for all entities and components, designed to be type-safe and efficient.
-- `Engine` — The main loop orchestrator. It manages a list of `ISystem` and calls their `update` method at a fixed rate.
-- `EventBus` — A communication channel allowing systems to interact in a decoupled manner.
-- `PluginLoader` — A utility class responsible for loading shared libraries (`.so`/`.dll`/`.dylib`) at runtime.
+.. code-block:: text
 
-*Example:* How the Engine runs systems
+   Registry
+   ├── sparse_array<Position>      [0: {100,200}, 1: {500,300}, 2: nullopt, ...]
+   ├── sparse_array<Velocity>      [0: {-200,0},  1: {0,0},     2: nullopt, ...]
+   ├── sparse_array<Health>        [0: {10},       1: {100},     2: nullopt, ...]
+   ├── sparse_array<Player>        [0: nullopt,    1: {score:0}, 2: nullopt, ...]
+   └── sparse_array<AI_enemy>      [0: {STRAIGHT}, 1: nullopt,   2: nullopt, ...]
 
-.. code-block:: cpp
+The ``Engine`` class holds a ``Registry`` and a list of ``ISystem`` pointers. Each frame, it calls ``update()`` on every system in order.
 
-   void Engine::run(std::function<bool()> condition) {
-       // ... time management (deltaTime) ...
-       while (m_isRunning && condition()) {
-           // ...
-           for (const auto& system : m_systems) {
-               // The Engine calls update on each registered system
-               system->update(registry, deltaTime);
-           }
-       }
-   }
 
-    void Engine::run(std::function<bool()> condition) {
-        const std::chrono::duration<float> timeStep(1.0f / 60.0f); // 60 ticks/sec
-            // ... time management (deltaTime) ...
+Server System Execution Order
+-----------------------------
 
-        while (m_isRunning) {
-            auto currentTime = std::chrono::steady_clock::now();
-                // ... time management (deltaTime) ...
+The order of systems in the server pipeline is critical:
 
-            while (accumulator >= timeStep.count()) {
-                for (const auto& system : m_systems) {
-                    // The Engine calls update on each registered system
-                    system->update(registry, timeStep.count());
-                }
-                accumulator -= timeStep.count();
-            }
+.. code-block:: text
 
-        }
-    }
+   1. GameRulesSystem     — Lua script: spawns enemies, triggers events
+   2. AISystem            — Enemy behaviors, publishes ShootEvents
+   3. ForcePodSystem      — ForcePod shooting (synchronized with player)
+   4. WeaponSystem        — Reads ShootEvents, creates bullet entities
+   5. MovementSystem      — Position += Velocity * deltaTime
+   6. CollisionSystem     — AABB detection, damage, powerups, destroy
+   7. StayWSystem         — Clamp entities within screen bounds
+   8. NetworkSystem       — Broadcast snapshot, reset velocities, clear events
 
----
 
-Graphics & Audio Abstraction
-----------------------------
+Client System Execution Order
+-----------------------------
 
-To achieve true modularity, the engine **never uses SFML or any other library directly**. It communicates through a set of abstract interfaces.
+.. code-block:: text
 
-*Key Interfaces:*
-- `IGraphicFactory` — The "master factory" responsible for creating all other concrete graphics/audio objects.
-- `IRenderWindow` — An abstract representation of a window, handling events and views.
-- `IRenderer` — A "drawer" that knows how to render abstract objects like `ISprite`.
-- `ISprite`, `IText`, `ITexture`, `IFont` — Abstract representations of graphical objects and resources.
-- `ISound`, `ISoundBuffer` — Abstract representations of audio objects.
-- `IEvents` — The "ALL events" represent any possile events that can happen during the game
+   1. InputSystem         — Reads keyboard, publishes LocalPlayerInputEvent
+   2. UISystem            — Reads UI events, updates HUD and overlays
+   3. NetworkSystem       — Sends inputs, receives snapshots, clears events
+   4. ScrollingSystem     — Scrolls background entities
+   5. AnimationSystem     — Advances sprite sheet frames
+   6. RenderSystem        — Draws all sprites + UI texts (LAST)
 
-*Example :*
-1. The `main` function loads a plugin (e.g., `SFMLBackend.so`) using the `PluginLoader`.
-2. It gets an `SFMLFactory` (hidden behind an `IGraphicalFactory` interface).
-3. It uses this factory to create an `IRenderWindow` and passes it to the `RenderSystem`.
-4. The `RenderSystem` uses the window's `IRenderer` to `draw` an `ISprite`, without ever knowing it's dealing with SFML.
 
----
+Data Flow
+---------
 
-Game Logic (Systems & Components)
----------------------------------
+.. code-block:: text
 
-Game logic is implemented in **Systems** that operate on **Components**.
-
-**Components** are pure data structs, separated into three categories:
-- **Shared:** `Position`, `Velocity`, `Health`, `Player`, `Bullet`... (known by both client and server).
-- **Server-Side:** `AI_enemy`, `AIState`, `Damage`... (gameplay logic).
-- **Client-Side:** `SpriteComponent`, `AnimationComponent`, `PlaySoundOnCreation`... (presentation logic).
-
-**Systems** contain all the logic, separated by responsibility:
-
-   * - System
-     - Role
-     - Location
-
-   * - `GameRulesSystem`
-     - Manages level flow and entity spawning via Lua scripts.
-     - Server
-   * - `AISystem`
-     - Controls enemy behavior based on `AIConfig`.
-     - Server
-   * - `CollisionSystem`
-     - Detects collisions and publishes events.
-     - Server
-   * - `MovementSystem`
-     - Applies velocity to position for all entities.
-     - Server (Shared)
-   * - `ServerNetworkSyncSystem`
-     - Manages clients and synchronizes the game state.
-     - Server (Engine)
-   * - `ClientNetworkSyncSystem`
-     - Receives server state and updates the client registry.
-     - Client
-   * - `RenderSystem`
-     - Draws all visible entities using the `IRenderer`.
-     - Client (Engine)
-   * - `AnimationSystem`
-     - Updates sprite animations.
-     - Client (Engine)
-   * - `AudioSystem`
-     - Plays sound effects.
-     - Client (Engine)
-   * - `InputSystem`
-     - Translates window events into game inputs.
-     - Client (Engine)
-
----
+   Client                          Server
+   ══════                          ══════
+   InputSystem                     Lobby (port 3000)
+       │ KeyPressed                    │ CREATE_ROOM / JOIN / INFINITE
+       ▼                               ▼
+   NetworkSystem ──── UDP ────► GameServer (port 3001+)
+       │ CLIENT_INPUT                  │
+       │                               ▼
+       │                          GameManage.handleIncomingPacket()
+       │                               │ sets Velocity, wantsToShoot
+       │                               ▼
+       │                          ECS Pipeline (8 systems)
+       │                               │
+       │                               ▼
+       │                          NetworkSystem.broadcastWorldState()
+       │                               │ pre-filter, compress, send
+       ◄────────── UDP ────────────────┘
+       │ GAME_SNAPSHOT (compressed)
+       ▼
+   decompress → parse header → apply destructions/creations/modifications
+       │
+       ▼
+   UISystem reads PlayerStateUIEvent → updates HUD
+       │
+       ▼
+   RenderSystem draws everything

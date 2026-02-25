@@ -118,7 +118,7 @@ Graphics Interfaces
       };
 
 ``IRenderer``
-   Represents the "drawer". It exposes methods to render drawable objects like sprites and text onto its render target (the window).
+   Represents the "drawer". It exposes methods to render drawable objects and shapes onto its render target (the window).
 
    .. code-block:: cpp
       :caption: Engine/include/Graphics/IRenderer.hpp
@@ -128,6 +128,9 @@ Graphics Interfaces
           virtual ~IRenderer() = default;
           virtual void draw(ISprite& sprite) = 0;
           virtual void draw(IText& text) = 0;
+          virtual void setDrawColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a) = 0;
+          virtual void drawRect(int x, int y, int w, int h) = 0;
+          virtual void drawFilledRect(int x, int y, int w, int h) = 0;
       };
 
 ``ITexture``
