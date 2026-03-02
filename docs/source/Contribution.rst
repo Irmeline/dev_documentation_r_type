@@ -91,7 +91,7 @@ Project Layout
    R-Type/
    ├── engine/          # Core ECS engine (static library)
    ├── Server/          # Server executable + game logic
-   ├── Client/          # Client executable + menu + assetssssssss
+   ├── Client/          # Client executable + menu + assets
    ├── Backends/        # Graphics backend plugins (SFML)
    ├── docs/            # Sphinx documentation (.rst files)
    ├── CMakeLists.txt   # Root build configuration
