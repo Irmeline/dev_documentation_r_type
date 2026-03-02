@@ -105,7 +105,8 @@ Credits
 **Developers:**
 
 - Océane **KODJELA** — ECS Engine & Systems
-- Zoltan **BABKO** — Networking & Server
-- Aurel **PLIYA**, Paul **MOURENS**, Vlad **BURGA** — Client & Graphics
+- Aurel **PLIYA** — Networking & Server
+- Zoltan **BABKO** — Cross-plateforme
+- Paul **MOURENS**, Vlad **BURGA** — Client & Graphics & logic
 
 Developed as part of **Epitech G-CPP-500 (2025)**.
